@@ -89,10 +89,14 @@ pip install -r requirements.txt
 ```
 ### 2. Run Spark master and worker nodes
 
-In the root project directory, run this bash command:
+In the root project directory, run this bash command (if using Docker compose):
 
 ```bash
 docker compose up -d
+```
+If using local Spark:
+```bash
+python main.py
 ```
 ### 3. Run `main.py` (optional)
 Then you can run `main.py` locally or as a service in docker-compose file already
