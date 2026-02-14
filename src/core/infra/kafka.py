@@ -1,17 +1,24 @@
 import json
 import logging
+import os
 from typing import Callable, Any, Optional
 from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
+from dotenv import load_dotenv
 
 # Get logger
 logger = logging.getLogger(__name__)
-
+load_dotenv()
+def _load_kafka_bootstrap_server() -> str:
+    kafka_host = os.getenv("KAFKA_HOST_EXTERNAL", "localhost")
+    kafka_port = os.getenv("KAFKA_PORT_EXTERNAL", "29092")
+    bootstrap_servers = f"{kafka_host}:{kafka_port}"
+    return bootstrap_servers
 class KafkaProducerService:
     """
     Service for producing messages to Kafka asynchronously.
     """
-    def __init__(self, bootstrap_servers: str):
-        self.bootstrap_servers = bootstrap_servers
+    def __init__(self):
+        self.bootstrap_servers = _load_kafka_bootstrap_server()
         self.producer: Optional[AIOKafkaProducer] = None
 
     async def start(self):
@@ -47,8 +54,8 @@ class KafkaListenerService:
     """
     Service for listening to Kafka topics asynchronously.
     """
-    def __init__(self, bootstrap_servers: str, topic: str, group_id: str):
-        self.bootstrap_servers = bootstrap_servers
+    def __init__(self, topic: str, group_id: str):
+        self.bootstrap_servers = _load_kafka_bootstrap_server()
         self.topic = topic
         self.group_id = group_id
         self.consumer: Optional[AIOKafkaConsumer] = None

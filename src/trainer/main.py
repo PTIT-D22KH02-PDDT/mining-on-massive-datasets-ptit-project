@@ -1,8 +1,8 @@
-from src.core import start_spark
+from src.core import _start_spark
 
 
 def main():
-    spark, logger = start_spark()
+    spark, logger = _start_spark()
     logger.info("Spark session started successfully!")
     spark.stop()
 

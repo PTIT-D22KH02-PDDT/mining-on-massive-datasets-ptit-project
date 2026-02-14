@@ -1,9 +1,3 @@
-"""
-spark.py
-~~~~~~~~
-
-Module containing helper function for use with Apache Spark
-"""
 import os
 from typing import Tuple
 
@@ -13,8 +7,14 @@ from pyspark.sql import SparkSession
 from src.core import logging
 
 load_dotenv()
+class SparkService:
+    def __init__(self):
+        spark_session, spark_logger = _start_spark()
+        self.spark_session = spark_session
+        self.spark_logger = spark_logger
+        self.context = self.spark_session.sparkContext
 
-def start_spark(app_name: str = 'my_spark_app') -> Tuple[SparkSession, logging.Log4j]:
+def _start_spark(app_name: str = 'my_spark_app') -> Tuple[SparkSession, logging.Log4j]:
     """
     Start Spark session, get Spark logger
     """

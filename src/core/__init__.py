@@ -1,3 +1,3 @@
-from .spark import start_spark
+from src.core.infra.spark import _start_spark
 from .logging import Log4j
-from .kafka import KafkaProducerService, KafkaListenerService
+from src.core.infra.kafka import KafkaProducerService, KafkaListenerService

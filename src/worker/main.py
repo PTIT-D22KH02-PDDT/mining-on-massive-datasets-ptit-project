@@ -13,7 +13,7 @@ async def main():
         group_id="recommender-group"
     )
     
-    print("Starting Kafka listener service...")
+    print("Starting Kafka listener infra...")
     await listener.listen(process_message)
 
 if __name__ == '__main__':
