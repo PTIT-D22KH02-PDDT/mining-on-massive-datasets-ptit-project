@@ -1,0 +1,55 @@
+# =============================================================================
+# Global Configuration File
+# =============================================================================
+# This file is loaded by src/core/config.py and made available globally
+# throughout the project via `from src.core import config`.
+
+app:
+  name: "mining-on-massive-datasets"
+  log_level: "INFO"
+
+# -----------------------------------------------------------------------------
+# Kafka Configuration
+# -----------------------------------------------------------------------------
+kafka:
+  bootstrap_servers: "${KAFKA_HOST_EXTERNAL}:${KAFKA_PORT_EXTERNAL}"
+
+  # Producer settings
+  producer:
+    acks: "all"                 # "all", "1", or "0"
+    retries: 3
+    linger_ms: 10               # batch window in ms
+    enable_idempotence: true
+
+  # Consumer settings
+  consumer:
+    group_id: "mining-on-massive-datasets-group"
+    auto_offset_reset: "earliest"   # "earliest" or "latest"
+    enable_auto_commit: true
+    auto_commit_interval_ms: 5000
+    session_timeout_ms: 30000
+
+  # Topics — auto-created on startup if they don't exist
+  topics:
+    recommender_updates:
+      name: "recommender-updates"
+      partitions: 1
+      replication_factor: 1
+      consumer_count: 2          # Number of consumers to run for this topic
+      batch_size: 10             # How many messages to process in a batch
+    user_events:
+      name: "user-events"
+      partitions: 1
+      replication_factor: 1
+      consumer_count: 1
+      batch_size: 5
+
+# -----------------------------------------------------------------------------
+# Spark Configuration
+# -----------------------------------------------------------------------------
+spark:
+  master: "${SPARK_MASTER:local[*]}"
+  app_name: "mining-on-massive-datasets"
+  config:
+    spark.driver.memory: "2g"
+    spark.executor.memory: "2g"
