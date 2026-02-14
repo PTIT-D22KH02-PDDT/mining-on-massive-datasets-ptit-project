@@ -1,102 +1,82 @@
+"""
+Low-level Kafka infrastructure.
+Focuses on Producer and Topic Management.
+"""
+
 import json
 import logging
-import os
-from typing import Callable, Any, Optional
-from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
-from dotenv import load_dotenv
+from typing import Any, Dict, List, Optional
 
-# Get logger
+from aiokafka import AIOKafkaProducer
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+from aiokafka.errors import TopicAlreadyExistsError
+
+from src.core.config import cfg
+
 logger = logging.getLogger(__name__)
-load_dotenv()
-def _load_kafka_bootstrap_server() -> str:
-    kafka_host = os.getenv("KAFKA_HOST_EXTERNAL", "localhost")
-    kafka_port = os.getenv("KAFKA_PORT_EXTERNAL", "29092")
-    bootstrap_servers = f"{kafka_host}:{kafka_port}"
-    return bootstrap_servers
+
+def _kafka_cfg() -> Dict[str, Any]:
+    return cfg.get("kafka", {})
+
+def _bootstrap_servers() -> str:
+    return _kafka_cfg().get("bootstrap_servers", "localhost:29092")
+
+async def ensure_topics() -> tuple[List[str], bool]:
+    """
+    Auto-create topics from config.yml.
+    Returns (topic_list, newly_created_flag)
+    """
+    topic_defs = _kafka_cfg().get("topics", {})
+    if not topic_defs:
+        return [], False
+
+    admin = AIOKafkaAdminClient(bootstrap_servers=_bootstrap_servers())
+    await admin.start()
+
+    created = []
+    newly_created = False
+    try:
+        for td in topic_defs.values():
+            new_topic = NewTopic(
+                name=td["name"],
+                num_partitions=td.get("partitions", 1),
+                replication_factor=td.get("replication_factor", 1),
+            )
+            try:
+                await admin.create_topics([new_topic])
+                logger.info(f"Created topic: {td['name']}")
+                created.append(td["name"])
+                newly_created = True
+            except TopicAlreadyExistsError:
+                created.append(td["name"])
+    finally:
+        await admin.close()
+
+    return created, newly_created
+
 class KafkaProducerService:
-    """
-    Service for producing messages to Kafka asynchronously.
-    """
+    """Simple wrapper for AIOKafkaProducer."""
+    
     def __init__(self):
-        self.bootstrap_servers = _load_kafka_bootstrap_server()
-        self.producer: Optional[AIOKafkaProducer] = None
+        self._bootstrap = _bootstrap_servers()
+        self._producer: Optional[AIOKafkaProducer] = None
 
     async def start(self):
-        """Initializes and starts the Kafka producer."""
-        if self.producer is None:
-            self.producer = AIOKafkaProducer(
-                bootstrap_servers=self.bootstrap_servers,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8')
-            )
-            await self.producer.start()
-            logger.info(f"Kafka producer started for servers: {self.bootstrap_servers}")
+        if self._producer: return
+        self._producer = AIOKafkaProducer(
+            bootstrap_servers=self._bootstrap,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            acks="all",
+            enable_idempotence=True
+        )
+        await self._producer.start()
 
     async def stop(self):
-        """Stops the Kafka producer."""
-        if self.producer:
-            await self.producer.stop()
-            self.producer = None
-            logger.info("Kafka producer stopped.")
+        if self._producer:
+            await self._producer.stop()
+            self._producer = None
 
-    async def send(self, topic: str, message: Any):
-        """Sends a message to a Kafka topic."""
-        if self.producer is None:
-            await self.start()
-        
-        try:
-            await self.producer.send_and_wait(topic, message)
-            logger.debug(f"Message sent to topic {topic}")
-        except Exception as e:
-            logger.error(f"Failed to send message to Kafka topic {topic}: {e}")
-            raise
-
-class KafkaListenerService:
-    """
-    Service for listening to Kafka topics asynchronously.
-    """
-    def __init__(self, topic: str, group_id: str):
-        self.bootstrap_servers = _load_kafka_bootstrap_server()
-        self.topic = topic
-        self.group_id = group_id
-        self.consumer: Optional[AIOKafkaConsumer] = None
-        self._running = False
-
-    async def start(self):
-        """Initializes and starts the Kafka consumer."""
-        if self.consumer is None:
-            self.consumer = AIOKafkaConsumer(
-                self.topic,
-                bootstrap_servers=self.bootstrap_servers,
-                group_id=self.group_id,
-                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-                auto_offset_reset='earliest'
-            )
-            await self.consumer.start()
-            self._running = True
-            logger.info(f"Kafka listener started for topic: {self.topic} (group: {self.group_id})")
-
-    async def stop(self):
-        """Stops the Kafka consumer."""
-        self._running = False
-        if self.consumer:
-            await self.consumer.stop()
-            self.consumer = None
-            logger.info("Kafka listener stopped.")
-
-    async def listen(self, callback: Callable[[Any], Any]):
-        """
-        Starts listening for messages and triggers the callback for each.
-        """
-        if self.consumer is None:
-            await self.start()
-        
-        try:
-            async for msg in self.consumer:
-                if not self._running:
-                    break
-                try:
-                    await callback(msg.value)
-                except Exception as e:
-                    logger.error(f"Error processing Kafka message: {e}")
-        finally:
-            await self.stop()
+    async def send(self, topic: str, message: Any, key: str | None = None):
+        if not self._producer: await self.start()
+        encoded_key = key.encode("utf-8") if key else None
+        return await self._producer.send_and_wait(topic, message, key=encoded_key)

@@ -76,23 +76,17 @@ services:
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      # Single-node optimizations
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
     healthcheck:
       test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-
-  init-kafka-topics:
-    image: docker.io/apache/kafka:4.1.1
-    depends_on:
-      kafka:
-        condition: service_healthy
-    working_dir: /opt/kafka/bin
-    volumes:
-      - ./init-kafka-topics.sh:/init-kafka-topics.sh
-    entrypoint: [ "/bin/bash" ]
-    command: [ "/init-kafka-topics.sh" ]
 
   kafka-ui:
     image: provectuslabs/kafka-ui
