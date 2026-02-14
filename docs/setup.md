@@ -100,3 +100,13 @@ python main.py
 ```
 ### 3. Run `main.py` (optional)
 Then you can run `main.py` locally or as a service in docker-compose file already
+
+
+## Hướng dẫn chạy project
+
+- Nếu đã tải pyspark và JDK 17 về rồi thì chỉ cần chạy local là được, không cần phải dùng Docker compose
+- Dùng docker compose để chạy Kafka và Kafka UI ( truy cập localhost:8989)
+
+
+### Giao diện Kafka UI (http://localhost:8989)
+![](../docs/images/kafka-ui-dashboard.png)
