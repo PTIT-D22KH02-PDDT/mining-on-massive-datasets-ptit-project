@@ -55,12 +55,12 @@ Activate the environment:
 
 - **Windows (PowerShell)**:
   ```powershell
-  .\.venv\Scripts\Activate.ps1
+  .venv\Scripts\Activate.ps1
   ```
 
 - **Windows (cmd.exe)**:
   ```cmd
-  .\.venv\Scripts\activate.bat
+  .venv\Scripts\activate.bat
   ```
 
 Then install packages:
