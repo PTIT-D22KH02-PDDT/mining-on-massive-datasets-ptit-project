@@ -2,13 +2,14 @@ import os
 
 from matplotlib import pyplot as plt
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, from_unixtime, hour
+from pyspark.sql.functions import col, from_unixtime, hour, explode
 
+from src.core import SparkService
 from src.core.constant import (
     EDA_OUTPUT_PATH,
     EVENTS_COUNT_BY_TYPE_BAR_GRAPH,
     EVENTS_COUNT_BY_TYPE_PIE_CHART,
-    HOURLY_EVENTS_TREND_LINE_GRAPH
+    HOURLY_EVENTS_TREND_LINE_GRAPH, DATASETS_FILEPATH
 )
 
 
@@ -72,3 +73,28 @@ def hourly_events_trend_line_graph(df: DataFrame):
     save_path = str(EDA_OUTPUT_PATH / HOURLY_EVENTS_TREND_LINE_GRAPH)
     plt.savefig(save_path)
     print(f"Hourly trend saved to: {save_path}")
+
+
+def main():
+    spark_service = SparkService()
+    # Load dataset
+    data_path = str(DATASETS_FILEPATH)
+    spark_service.spark_logger.info(f"Loading data from: {data_path}")
+    df = spark_service.spark_session.read.parquet(data_path)
+
+    # Extract events while keeping 'session' for session-level analysis
+    # explode creates 'col' by default, then we select session and col.*
+    events = df.select(col("session"), explode(col("events"))).select("session", "col.*")
+
+    # 1. Distribution of event types
+    events_count_by_type_pie_chart(events)
+    events_count_by_type_bar_graph(events)
+
+    # 2. Activity Trends
+    hourly_events_trend_line_graph(events)
+
+    spark_service.stop()
+
+
+if __name__ == '__main__':
+    main()
