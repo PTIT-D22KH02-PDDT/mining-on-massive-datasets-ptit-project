@@ -25,3 +25,16 @@ EDA_OUTPUT_PATH = ROOT_DIR / "output" / "eda"
 EVENTS_COUNT_BY_TYPE_BAR_GRAPH = "events_count_by_type_bar_graph.png"
 EVENTS_COUNT_BY_TYPE_PIE_CHART = "events_count_by_type_pie_chart.png"
 HOURLY_EVENTS_TREND_LINE_GRAPH = "hourly_events_trend.png"
+
+
+
+# COLUMN NAME
+SESSION_COLUMN_NAME = "session"
+AID_COLUMN_NAME = "aid"
+TS_COLUMN_NAME = "ts"
+EVENTS_COLUMN_NAME = "events"
+
+
+# Intermediate results saved
+EVENT_PAIRS_PARQUET_FILE = DATASETS_DIR / "event_pairs.parquet"
+COVISITATION_MATRIX_PARQUET_FILE = DATASETS_DIR / "covisitation.parquet"

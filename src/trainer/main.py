@@ -1,5 +1,12 @@
+from underthesea.transformer.tagged_feature import functions
+
 from src.core import SparkService
-from src.core.constant import DATASETS_FILEPATH
+from src.core.constant import DATASETS_FILEPATH, SESSION_COLUMN_NAME, AID_COLUMN_NAME, TS_COLUMN_NAME, \
+    EVENTS_COLUMN_NAME
+from pyspark.sql import functions
+
+from src.trainer.preprocess.CovisitationMatrixBuilder import CovisitationMatrixBuilder
+from src.trainer.preprocess.DataProcessor import DataProcessor
 
 
 def main():
@@ -8,7 +15,21 @@ def main():
     data_path = str(DATASETS_FILEPATH)
     spark_service.spark_logger.info(f"Loading data from: {data_path}")
     df = spark_service.spark_session.read.parquet(data_path)
+    df = df.select(
+        functions.col(SESSION_COLUMN_NAME),
+        functions.explode(functions.col(EVENTS_COLUMN_NAME)).alias(EVENTS_COLUMN_NAME),
+    ).select(
+        functions.col(SESSION_COLUMN_NAME),
+        functions.col(f"{EVENTS_COLUMN_NAME}.{AID_COLUMN_NAME}").alias(AID_COLUMN_NAME),
+        functions.col(f"{EVENTS_COLUMN_NAME}.{TS_COLUMN_NAME}").alias(TS_COLUMN_NAME),
+    )
 
+
+    data_processor = DataProcessor(spark_service)
+    # data_processor.build_event_pairs(df)
+
+    covisition_matrix = CovisitationMatrixBuilder(spark_service);
+    covisition_matrix.load_covisitation_matrix()
 
 if __name__ == '__main__':
     main()
