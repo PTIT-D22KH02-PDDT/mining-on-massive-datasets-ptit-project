@@ -7,6 +7,7 @@ from src.core.constant import (
     PAIRS_24H_PARQUET_FILE, PAIRS_14D_BUY2BUY_PARQUET_FILE, CLICK_TYPE, CART_TYPE, ORDER_TYPE,
     WEIGHT_INTERMEDIATE_COLUMN, DATASETS_FILEPATH, EVENTS_COLUMN_NAME
 )
+from src.trainer.preprocess.DataProcessor import DataProcessor
 
 
 class CovisitationMatrixBuilder:
@@ -92,7 +93,7 @@ def main():
         functions.col(f"{EVENTS_COLUMN_NAME}.{TYPE_COLUMN_NAME}").alias(TYPE_COLUMN_NAME),
     )
 
-    # data_processor = DataProcessor(spark_service)
+    data_processor = DataProcessor(spark_service)
     # # 1. Create intermediate pairs to save RAM
     # spark_service.spark_logger.info("Creating intermediate pairs (disk-based)...")
     # data_processor.build_intermediate_pairs(df)
@@ -107,8 +108,8 @@ def main():
 
     # spark_service.spark_logger.info("Building Clicks Matrix...")
     # # Get min/max ts for clicks weighting
-    stats = df.select(functions.min(TS_COLUMN_NAME), functions.max(TS_COLUMN_NAME)).collect()[0]
-    covisition_matrix.build_clicks_matrix(min_ts=stats[0], max_ts=stats[1])
+    # stats = df.select(functions.min(TS_COLUMN_NAME), functions.max(TS_COLUMN_NAME)).collect()[0]
+    # covisition_matrix.build_clicks_matrix(min_ts=stats[0], max_ts=stats[1])
 
 
 if __name__ == '__main__':
