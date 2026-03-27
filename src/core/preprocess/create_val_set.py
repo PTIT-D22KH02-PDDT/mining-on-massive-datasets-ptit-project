@@ -230,10 +230,6 @@ simple_split_parquet(
     seed=42
 )
 
-
-import polars as pl
-from pathlib import Path
-
 OUTPUT_DIR = Path(__file__).parent.parent.parent / 'datasets' / 'otto-train-val'
 TRAIN_SESSIONS_PARQUET = OUTPUT_DIR / 'train_sessions.parquet'
 VALID_PARQUET          = OUTPUT_DIR / 'valid_inputs.parquet'
