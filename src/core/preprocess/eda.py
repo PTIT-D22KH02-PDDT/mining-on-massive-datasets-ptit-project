@@ -14,14 +14,14 @@ import altair as alt
 from datetime import datetime
 import random
 
-DATASET_DIR = Path(__file__).parent.parent / 'datasets' / 'otto-parquet'
+DATASET_DIR = Path(__file__).parent.parent.parent / 'datasets' / 'otto-parquet'
 TRAIN_JSON = DATASET_DIR / 'train.jsonl'
 TEST_JSON = DATASET_DIR / 'test.jsonl'
 
 
 # # Convert JSONL to parquet
 
-# OUTPUT_PATH = Path(__file__).parent.parent / 'datasets' / 'otto-recommender-system')
+# OUTPUT_PATH = Path(__file__).parent.parent.parent / 'datasets' / 'otto-recommender-system')
 # TRAIN_PARQUET = OUTPUT_PATH / 'train.parquet'
 # TEST_PARQUET = OUTPUT_PATH / 'test.parquet'
 
@@ -42,7 +42,7 @@ TEST_JSON = DATASET_DIR / 'test.jsonl'
 
 # # 1. EDA
 
-PARQUET_DIR = Path(__file__).parent.parent / 'datasets' / 'otto-parquet'
+PARQUET_DIR = Path(__file__).parent.parent.parent / 'datasets' / 'otto-parquet'
 TRAIN_PARQUET = PARQUET_DIR / 'train.parquet'
 TEST_PARQUET = PARQUET_DIR / 'test.parquet'
 
