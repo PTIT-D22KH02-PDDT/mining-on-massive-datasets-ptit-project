@@ -28,6 +28,9 @@ class SparkService:
         self.spark_logger = spark_logger
         self.context = self.spark_session.sparkContext
 
+    def stop(self):
+        self.spark_session.stop()
+
 
 def _start_spark(app_name: str | None = None) -> Tuple[SparkSession, spark_logging.Log4j]:
     """

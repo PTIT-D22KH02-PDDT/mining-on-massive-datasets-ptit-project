@@ -51,5 +51,10 @@ spark:
   master: "${SPARK_MASTER:local[*]}"
   app_name: "mining-on-massive-datasets"
   config:
-    spark.driver.memory: "2g"
-    spark.executor.memory: "2g"
+    spark.driver.memory: "4g"
+    spark.executor.memory: "6g"
+    spark.sql.shuffle.partitions: "60"
+    spark.driver.maxResultSize: "2g"
+    spark.memory.fraction: "0.8"
+    spark.memory.storageFraction: "0.1"
+    spark.local.dir: "/tmp/spark-temp"
