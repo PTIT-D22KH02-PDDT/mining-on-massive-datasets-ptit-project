@@ -7,9 +7,9 @@ import random
 from copy import deepcopy
 from tqdm.auto import tqdm
 
-
-OUTPUT_DIR = Path(__file__).parent.parent.parent / 'datasets' / 'otto-train-val'
-TRAIN_PARQUET = Path(__file__).parent.parent.parent / 'datasets' / 'otto-parquet' / 'train.parquet'
+ROOT_DIR = Path(__file__).resolve().parents[3]
+OUTPUT_DIR = ROOT_DIR / 'datasets' / 'otto-train-val'
+TRAIN_PARQUET = ROOT_DIR / 'datasets' / 'otto-parquet' / 'train.parquet'
 TRAIN_SESSIONS_PARQUET = OUTPUT_DIR / 'train_sessions.parquet'
 VALID_PARQUET = OUTPUT_DIR / 'valid_inputs.parquet'
 VALID_LABELS_PARQUET = OUTPUT_DIR / 'valid_labels.parquet'
@@ -222,150 +222,150 @@ def simple_split_parquet(train_parquet_path, output_dir, test_days=7, seed=42):
         size_mb = path.stat().st_size / (1024**2)
         print(f"    {fname:<30} {size_mb:.1f} MB")
 
+if __name__ == "__main__":
+    simple_split_parquet(
+        train_parquet_path=TRAIN_PARQUET,
+        output_dir=OUTPUT_DIR,
+        test_days=7,
+        seed=42
+    )
 
-simple_split_parquet(
-    train_parquet_path=TRAIN_PARQUET,
-    output_dir=OUTPUT_DIR,
-    test_days=7,
-    seed=42
-)
+    OUTPUT_DIR = ROOT_DIR / 'datasets' / 'otto-train-val'
+    TRAIN_SESSIONS_PARQUET = OUTPUT_DIR / 'train_sessions.parquet'
+    VALID_PARQUET          = OUTPUT_DIR / 'valid_inputs.parquet'
+    VALID_LABELS_PARQUET   = OUTPUT_DIR / 'valid_labels.parquet'
 
-OUTPUT_DIR = Path(__file__).parent.parent.parent / 'datasets' / 'otto-train-val'
-TRAIN_SESSIONS_PARQUET = OUTPUT_DIR / 'train_sessions.parquet'
-VALID_PARQUET          = OUTPUT_DIR / 'valid_inputs.parquet'
-VALID_LABELS_PARQUET   = OUTPUT_DIR / 'valid_labels.parquet'
+    train  = pl.read_parquet(TRAIN_SESSIONS_PARQUET)
+    inputs = pl.read_parquet(VALID_PARQUET)
+    labels = pl.read_parquet(VALID_LABELS_PARQUET)
 
-train  = pl.read_parquet(TRAIN_SESSIONS_PARQUET)
-inputs = pl.read_parquet(VALID_PARQUET)
-labels = pl.read_parquet(VALID_LABELS_PARQUET)
+    print("=" * 60)
+    print("1. SCHEMA & SHAPE")
+    print("=" * 60)
+    print(f"\ntrain_sessions : {train.shape}")
+    print(train.schema)
+    print(f"\nvalid_inputs   : {inputs.shape}")
+    print(inputs.schema)
+    print(f"\nvalid_labels   : {labels.shape}")
+    print(labels.schema)
 
-print("=" * 60)
-print("1. SCHEMA & SHAPE")
-print("=" * 60)
-print(f"\ntrain_sessions : {train.shape}")
-print(train.schema)
-print(f"\nvalid_inputs   : {inputs.shape}")
-print(inputs.schema)
-print(f"\nvalid_labels   : {labels.shape}")
-print(labels.schema)
+    print("\n" + "=" * 60)
+    print("2. SAMPLE DATA")
+    print("=" * 60)
+    print("\n-- train (1 row) --")
+    print(train.head(1))
+    print("\n-- valid_inputs (1 row) --")
+    print(inputs.head(1))
+    print("\n-- valid_labels (1 row) --")
+    print(labels.head(1))
 
-print("\n" + "=" * 60)
-print("2. SAMPLE DATA")
-print("=" * 60)
-print("\n-- train (1 row) --")
-print(train.head(1))
-print("\n-- valid_inputs (1 row) --")
-print(inputs.head(1))
-print("\n-- valid_labels (1 row) --")
-print(labels.head(1))
+    print("\n" + "=" * 60)
+    print("3. NULL CHECK")
+    print("=" * 60)
+    print(f"\ntrain  nulls: {train.null_count().row(0)}")
+    print(f"inputs nulls: {inputs.null_count().row(0)}")
+    print(f"labels nulls: {labels.null_count().row(0)}")
 
-print("\n" + "=" * 60)
-print("3. NULL CHECK")
-print("=" * 60)
-print(f"\ntrain  nulls: {train.null_count().row(0)}")
-print(f"inputs nulls: {inputs.null_count().row(0)}")
-print(f"labels nulls: {labels.null_count().row(0)}")
+    print("\n" + "=" * 60)
+    print("4. SESSION ID CHECKS")
+    print("=" * 60)
 
-print("\n" + "=" * 60)
-print("4. SESSION ID CHECKS")
-print("=" * 60)
+    input_sessions = set(inputs['session'].to_list())
+    label_sessions = set(labels['session'].to_list())
+    train_session_ids = set(train['session'].to_list())
 
-input_sessions = set(inputs['session'].to_list())
-label_sessions = set(labels['session'].to_list())
-train_session_ids = set(train['session'].to_list())
+    print(f"\ninputs sessions : {len(input_sessions):,}")
+    print(f"labels sessions : {len(label_sessions):,}")
+    print(f"inputs == labels: {input_sessions == label_sessions}")
 
-print(f"\ninputs sessions : {len(input_sessions):,}")
-print(f"labels sessions : {len(label_sessions):,}")
-print(f"inputs == labels: {input_sessions == label_sessions}")
+    overlap = input_sessions & train_session_ids
+    print(f"\nTrain/valid session overlap: {len(overlap):,}  (phải = 0)")
 
-overlap = input_sessions & train_session_ids
-print(f"\nTrain/valid session overlap: {len(overlap):,}  (phải = 0)")
+    print("\n" + "=" * 60)
+    print("5. EVENTS SANITY CHECK")
+    print("=" * 60)
 
-print("\n" + "=" * 60)
-print("5. EVENTS SANITY CHECK")
-print("=" * 60)
+    train_event_lens = train.with_columns(
+        pl.col('events').list.len().alias('n_events')
+    )['n_events']
+    input_event_lens = inputs.with_columns(
+        pl.col('events').list.len().alias('n_events')
+    )['n_events']
 
-train_event_lens = train.with_columns(
-    pl.col('events').list.len().alias('n_events')
-)['n_events']
-input_event_lens = inputs.with_columns(
-    pl.col('events').list.len().alias('n_events')
-)['n_events']
+    print(f"\ntrain  events/session — min:{train_event_lens.min()}, mean:{train_event_lens.mean():.1f}, max:{train_event_lens.max()}")
+    print(f"inputs events/session — min:{input_event_lens.min()}, mean:{input_event_lens.mean():.1f}, max:{input_event_lens.max()}")
+    print(f"Any session with 0 events (train) : {(train_event_lens == 0).sum()}")
+    print(f"Any session with 0 events (inputs): {(input_event_lens == 0).sum()}")
 
-print(f"\ntrain  events/session — min:{train_event_lens.min()}, mean:{train_event_lens.mean():.1f}, max:{train_event_lens.max()}")
-print(f"inputs events/session — min:{input_event_lens.min()}, mean:{input_event_lens.mean():.1f}, max:{input_event_lens.max()}")
-print(f"Any session with 0 events (train) : {(train_event_lens == 0).sum()}")
-print(f"Any session with 0 events (inputs): {(input_event_lens == 0).sum()}")
+    print("\n" + "=" * 60)
+    print("6. LABEL SANITY CHECK")
+    print("=" * 60)
 
-print("\n" + "=" * 60)
-print("6. LABEL SANITY CHECK")
-print("=" * 60)
+    label_df = labels.with_columns([
+        pl.col('labels').struct.field('clicks').alias('clicks'),
+        pl.col('labels').struct.field('carts').alias('carts'),
+        pl.col('labels').struct.field('orders').alias('orders'),
+    ])
 
-label_df = labels.with_columns([
-    pl.col('labels').struct.field('clicks').alias('clicks'),
-    pl.col('labels').struct.field('carts').alias('carts'),
-    pl.col('labels').struct.field('orders').alias('orders'),
-])
+    n_has_clicks = label_df['clicks'].drop_nulls().len()
+    n_has_carts  = label_df.filter(pl.col('carts').list.len() > 0).height
+    n_has_orders = label_df.filter(pl.col('orders').list.len() > 0).height
+    total        = labels.height
 
-n_has_clicks = label_df['clicks'].drop_nulls().len()
-n_has_carts  = label_df.filter(pl.col('carts').list.len() > 0).height
-n_has_orders = label_df.filter(pl.col('orders').list.len() > 0).height
-total        = labels.height
+    print(f"\nSessions có clicks label : {n_has_clicks:,} ({100*n_has_clicks/total:.1f}%)")
+    print(f"Sessions có carts  label : {n_has_carts:,}  ({100*n_has_carts/total:.1f}%)")
+    print(f"Sessions có orders label : {n_has_orders:,} ({100*n_has_orders/total:.1f}%)")
+    print(f"Sessions không có label nào: "
+        f"{label_df.filter(pl.col('clicks').is_null() & (pl.col('carts').list.len()==0) & (pl.col('orders').list.len()==0)).height:,}")
 
-print(f"\nSessions có clicks label : {n_has_clicks:,} ({100*n_has_clicks/total:.1f}%)")
-print(f"Sessions có carts  label : {n_has_carts:,}  ({100*n_has_carts/total:.1f}%)")
-print(f"Sessions có orders label : {n_has_orders:,} ({100*n_has_orders/total:.1f}%)")
-print(f"Sessions không có label nào: "
-      f"{label_df.filter(pl.col('clicks').is_null() & (pl.col('carts').list.len()==0) & (pl.col('orders').list.len()==0)).height:,}")
+    print("\n" + "=" * 60)
+    print("7. ITEM LEAKAGE CHECK")
+    print("=" * 60)
 
-print("\n" + "=" * 60)
-print("7. ITEM LEAKAGE CHECK")
-print("=" * 60)
+    # So sánh với train_sessions — đúng nguồn model được train
+    train_aids = set(
+        train
+        .explode('events')
+        .unnest('events')
+        ['aid'].to_list()
+    )
+    valid_aids = set(
+        inputs
+        .explode('events')
+        .unnest('events')
+        ['aid'].to_list()
+    )
 
-# So sánh với train_sessions — đúng nguồn model được train
-train_aids = set(
-    train
-    .explode('events')
-    .unnest('events')
-    ['aid'].to_list()
-)
-valid_aids = set(
-    inputs
-    .explode('events')
-    .unnest('events')
-    ['aid'].to_list()
-)
+    leaked = valid_aids - train_aids
+    print(f"\nTrain unique aids : {len(train_aids):,}")
+    print(f"Valid unique aids  : {len(valid_aids):,}")
+    print(f"Unknown aids in valid (phải = 0): {len(leaked):,}")
 
-leaked = valid_aids - train_aids
-print(f"\nTrain unique aids : {len(train_aids):,}")
-print(f"Valid unique aids  : {len(valid_aids):,}")
-print(f"Unknown aids in valid (phải = 0): {len(leaked):,}")
+    print("\n" + "=" * 60)
+    print("8. TIMESTAMP ORDER CHECK (sample 1000 sessions)")
+    print("=" * 60)
 
-print("\n" + "=" * 60)
-print("8. TIMESTAMP ORDER CHECK (sample 1000 sessions)")
-print("=" * 60)
+    sample = inputs.sample(min(1000, inputs.height), seed=42)
+    n_unsorted = 0
+    for row in sample.iter_rows(named=True):
+        ts_list = [e['ts'] for e in row['events']]
+        if ts_list != sorted(ts_list):
+            n_unsorted += 1
 
-sample = inputs.sample(min(1000, inputs.height), seed=42)
-n_unsorted = 0
-for row in sample.iter_rows(named=True):
-    ts_list = [e['ts'] for e in row['events']]
-    if ts_list != sorted(ts_list):
-        n_unsorted += 1
+    print(f"\nSessions có events không theo thứ tự ts: {n_unsorted} (phải = 0)")
 
-print(f"\nSessions có events không theo thứ tự ts: {n_unsorted} (phải = 0)")
-
-print("\n" + "=" * 60)
-print("SUMMARY")
-print("=" * 60)
-checks = {
-    "inputs == labels session ids" : input_sessions == label_sessions,
-    "No train/valid overlap"       : len(overlap) == 0,
-    "No 0-event sessions (train)"  : (train_event_lens == 0).sum() == 0,
-    "No 0-event sessions (inputs)" : (input_event_lens == 0).sum() == 0,
-    "No unknown aids in valid"     : len(leaked) == 0,
-    "Events sorted by ts"          : n_unsorted == 0,
-}
-for check, passed in checks.items():
-    status = "PASS" if passed else "FAIL"
-    print(f"  [{status}] {check}")
+    print("\n" + "=" * 60)
+    print("SUMMARY")
+    print("=" * 60)
+    checks = {
+        "inputs == labels session ids" : input_sessions == label_sessions,
+        "No train/valid overlap"       : len(overlap) == 0,
+        "No 0-event sessions (train)"  : (train_event_lens == 0).sum() == 0,
+        "No 0-event sessions (inputs)" : (input_event_lens == 0).sum() == 0,
+        "No unknown aids in valid"     : len(leaked) == 0,
+        "Events sorted by ts"          : n_unsorted == 0,
+    }
+    for check, passed in checks.items():
+        status = "PASS" if passed else "FAIL"
+        print(f"  [{status}] {check}")
 
