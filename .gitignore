@@ -208,4 +208,6 @@ __marimo__/
 
 **/.vscode
 test/*
-datasets/*
+**/datasets/*
+**/cache/**
+**/**.pdf
