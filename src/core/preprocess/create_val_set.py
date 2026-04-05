@@ -8,8 +8,8 @@ from copy import deepcopy
 from tqdm.auto import tqdm
 
 
-OUTPUT_DIR = Path(__file__).parent.parent.parent / 'datasets' / 'otto-train-val'
-TRAIN_PARQUET = Path(__file__).parent.parent.parent / 'datasets' / 'otto-parquet' / 'train.parquet'
+OUTPUT_DIR = Path(__file__).parent.parent.parent.parent / 'datasets' / 'otto-train-val'
+TRAIN_PARQUET = Path(__file__).parent.parent.parent.parent / 'datasets' / 'otto-recommender-system' / 'train.parquet'
 TRAIN_SESSIONS_PARQUET = OUTPUT_DIR / 'train_sessions.parquet'
 VALID_PARQUET = OUTPUT_DIR / 'valid_inputs.parquet'
 VALID_LABELS_PARQUET = OUTPUT_DIR / 'valid_labels.parquet'
