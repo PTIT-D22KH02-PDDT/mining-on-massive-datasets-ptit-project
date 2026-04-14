@@ -8,7 +8,15 @@ Link bài báo: https://arxiv.org/pdf/1811.00855
 Một số phương pháp trước đó:
 
 - RNN: Chỉ mô hình hóa các chuyển đổi tuần tự giữa các mục liền kề, bỏ qua các kết nối phức tạp và ngầm định giữa các mục không liền kề trong một phiên
+ví dụ: có thể 
+Session: [Laptop ASUS] → [Laptop MSI] → [Chuột gaming] → [Bàn phím] → [Laptop ASUS]
+Quan hệ thực sự:
+    - Laptop ASUS và Laptop MSI: So sánh (cùng loại)
+    - Laptop ASUS -> Chuột gaming: Bổ trợ (phụ kiện cho laptop)
+    - Chuột gaming -> Bàn phím: Bổ trợ (cùng là phụ kiện)
+    - Laptop ASUS (lần 2): Quay lại so sánh
 
+Dễ thấy có nhiều quan hệ phức tạp hơn chỉ "item trước -> item sau"!
 - Hạn chế trong biểu diễn: Khó khăn trong việc nắm bắt chính xác ý định người dùng khi có sự thay đổi sở thích nhanh chóng hoặc các lần nhấp chuột ngẫu nhiên (nhiễu)
  
 

@@ -8,11 +8,14 @@ Link bài báo: https://www.mdpi.com/2227-7390/8/9/1607
 Bài báo tập trung vào hệ thống gợi ý dựa trên phiên (session-based recommendation), nơi danh tính người dùng thường ẩn danh và hệ thống chỉ có thể dựa vào các hành vi nhấp chuột trong một phiên làm việc hiện tại
 . Tác giả chỉ ra hai hạn chế lớn của các phương pháp hiện tại (như SR-GNN hay RNN):
 
-- Sở thích cố định: Các mô hình cũ thường tạo ra một vector đại diện phiên cố định, không tính đến sự đa dạng của sở thích người dùng đối với các món đồ mục tiêu (target items) khác nhau
+- Sở thích cố định: Các mô hình cũ thường tạo ra một vector đại diện phiên cố định, không tính đến sự đa dạng của sở thích người dùng đối với các món đồ mục tiêu (target items) khác nhau. Tức là biểu diễn theo phien không thay đổi theo target item
 .
 
-- Khó xác định độ ưu tiên: Khó khăn trong việc nắm bắt chính xác mức độ quan trọng khác nhau của từng món đồ trong sở thích dài hạn của người dùng
+- Khó xác định độ ưu tiên: Khó khăn trong việc nắm bắt chính xác mức độ quan trọng khác nhau của từng món đồ trong sở thích dài hạn của người dùng, hay có thể gọi là không phân biệt mức độ quan trọng khác nhau của các neighbors 
 .
+
+- Tất cả nodes được cập nhật theo cùng một cách
+
 
 
 ## Mô hình đề xuất
