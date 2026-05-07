@@ -4,13 +4,15 @@ import torch
 import numpy as np
 import streamlit as st
 import pytorch_lightning as py_light
+import random
+import math
 from torch import nn, tensor, concat, diag, logical_and, logical_or, tile
 from torch.nn import Dropout
 from datetime import datetime
 import traceback
 from typing import List, Tuple
 
-# --- SASRec Model Definition (from sasrec-inference.ipynb) ---
+# --- SASRec Model Definition ---
 
 def multiply_head_with_embedding(prediction_head, embeddings):
     return prediction_head.matmul(embeddings.transpose(-1, -2))
@@ -101,7 +103,6 @@ class SASRecInference:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
-        # Load the model directly using the defined class
         self.model = SASRec.load_from_checkpoint(checkpoint_path, map_location=device)
         self.model.eval()
         self.model.to(device)
@@ -109,13 +110,11 @@ class SASRecInference:
         self.num_items = self.model.num_items
 
     def _prepare_sequence(self, click_sequence: List[int]) -> Tuple[torch.Tensor, torch.Tensor]:
-        # Sequence comes as raw AIDs, SasRec expects shifted AIDs (aid + 1)
         seq = [aid + 1 for aid in click_sequence[-self.max_len:]]
         seq_len = len(seq)
         pad_len = self.max_len - seq_len
         padded = [0] * pad_len + seq
         mask_arr = [0.0] * pad_len + [1.0] * seq_len
-        
         item_indices = torch.tensor([padded], dtype=torch.long, device=self.device)
         mask = torch.tensor([mask_arr], dtype=torch.float, device=self.device)
         return item_indices, mask
@@ -124,50 +123,40 @@ class SASRecInference:
     def recommend_topk(self, click_sequence: List[int], k=20, exclude_clicked=True) -> Tuple[List[int], List[float]]:
         if not click_sequence:
             return [], []
-            
         item_indices, mask = self._prepare_sequence(click_sequence)
         x_hat = self.model.forward(item_indices, mask)
         last_hidden = x_hat[:, -1, :]
-        
-        logits = multiply_head_with_embedding(
-            last_hidden,
-            self.model.output_embedding.weight,
-        ).squeeze(0)
-        
-        logits[0] = float("-inf") # padding
-        
+        logits = multiply_head_with_embedding(last_hidden, self.model.output_embedding.weight).squeeze(0)
+        logits[0] = float("-inf")
         if exclude_clicked:
             for aid in click_sequence:
                 idx = aid + 1
                 if 0 < idx <= self.num_items:
                     logits[idx] = float("-inf")
-                    
         actual_k = min(k, self.num_items)
         top_scores_tensor, top_indices_tensor = torch.topk(logits, k=actual_k)
-        
-        top_aids_shifted = top_indices_tensor.cpu().tolist()
+        top_aids = [aid - 1 for aid in top_indices_tensor.cpu().tolist()]
         top_scores = top_scores_tensor.cpu().tolist()
-        
-        # Convert back to original OTTO AIDs
-        top_aids = [aid - 1 for aid in top_aids_shifted]
         return top_aids, top_scores
 
-# --- Streamlit Application ---
+# --- Helpers ---
 
-st.set_page_config(
-    page_title="SasRec Recommender",
-    layout="wide"
-)
+@st.cache_resource
+def load_image_paths():
+    json_path = "/kaggle/working/image_paths.json"
+    if os.path.exists(json_path):
+        with open(json_path, "r") as f:
+            return json.load(f)
+    return []
 
-# Helper for logging
-def log_event(message, payload=None):
-    try:
-        ts = datetime.now().isoformat()
-        with open("sasrec_demo.log", "a") as f:
-            f.write(f"[{ts}] {message}\n")
-            if payload:
-                f.write(f"{json.dumps(payload)}\n")
-    except: pass
+def get_image_for_aid(aid, all_images):
+    if not all_images:
+        return None
+    return all_images[aid % len(all_images)]
+
+# --- Streamlit UI ---
+
+st.set_page_config(page_title="Demo Otto Recommender system", layout="wide")
 
 @st.cache_resource
 def get_inference_engine(checkpoint_path, device):
@@ -175,122 +164,136 @@ def get_inference_engine(checkpoint_path, device):
         return None
     try:
         return SASRecInference(checkpoint_path, device=device)
-    except Exception as e:
-        st.error(f"Error loading model: {e}")
+    except:
         return None
 
-@st.cache_data
-def load_sample_data(file_path, num_samples=20):
-    if not os.path.exists(file_path):
-        return []
-    samples = []
-    try:
-        with open(file_path, 'r') as f:
-            for i, line in enumerate(f):
-                if i >= num_samples: break
-                samples.append(json.loads(line))
-    except Exception as e:
-        st.sidebar.error(f"Error loading data: {e}")
-    return samples
+all_images = load_image_paths()
+num_images = len(all_images) if all_images else 1000000
 
-# --- Sidebar Configuration ---
-with st.sidebar:
-    st.header("Settings")
-    
-    # Checkpoint path
-    default_ckpt = "/kaggle/input/models/sandaria/sasrec/pytorch/otto-dataset/1/sasrec-otto-epoch4-recall_cutoff_200.308.ckpt"
-    ckpt_path = st.text_input("Model Checkpoint Path", value=default_ckpt)
-    
-    device_option = st.selectbox("Inference Device", ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"])
-    
-    st.divider()
-    st.header("Data Configuration")
-    test_data_path = "/kaggle/input/competitions/otto-recommender-system/test.jsonl"
-    sample_size = st.slider("Samples to Load", 10, 200, 50)
-    
-    if st.button("Reload Data"):
-        st.cache_data.clear()
-        st.rerun()
-
-# --- Load Model ---
-engine = get_inference_engine(ckpt_path, device_option)
-
-# --- App State ---
+# Initialize State
 if 'history' not in st.session_state:
     st.session_state.history = []
 if 'recs' not in st.session_state:
     st.session_state.recs = []
 
-# --- Main UI ---
-st.title("SasRec Recommender Demo")
+# Đảm bảo Catalog luôn có ít nhất 10 trang (240 sản phẩm)
+if 'catalog' not in st.session_state or len(st.session_state.catalog) < 100:
+    pool_size = max(240, min(num_images, 1000))
+    st.session_state.catalog = random.sample(range(num_images), pool_size)
 
-if not engine:
-    st.error(f"Model checkpoint not found at: {ckpt_path}")
-
-col_left, col_right = st.columns(2)
-
-with col_left:
-    st.header("Simulation")
-    
-    # Sample selection
-    samples = load_sample_data(test_data_path, sample_size)
-    if samples:
-        selected_session = st.selectbox(
-            "Load a session",
-            options=[None] + samples,
-            format_func=lambda x: f"Session {x['session']} ({len(x['events'])} events)" if x else "Manual..."
-        )
-        if selected_session and st.button("Load Session"):
-            st.session_state.history = [{"aid": e['aid'], "type": e['type']} for e in selected_session['events']]
-            st.session_state.recs = []
-            st.rerun()
-
-    st.subheader("Add Action")
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        aid_input = st.number_input("Item ID", min_value=0, step=1, value=0)
-    with c2:
-        action_type = st.selectbox("Type", ["clicks", "carts", "orders"])
-    
-    if st.button("Add to Sequence"):
-        st.session_state.history.append({"aid": aid_input, "type": action_type})
+# Sidebar
+with st.sidebar:
+    st.title("Controls")
+    ckpt_path = "/kaggle/input/models/sandaria/sasrec/pytorch/otto-dataset/1/sasrec-otto-epoch4-recall_cutoff_200.308.ckpt"
+    device_opt = "cuda" if torch.cuda.is_available() else "cpu"
+    st.divider()
+    if st.button("New Catalog Pool"):
+        pool_size = max(240, min(num_images, 1000))
+        st.session_state.catalog = random.sample(range(num_images), pool_size)
+        st.rerun()
+    if st.button("Reset Everything"):
+        st.session_state.history = []
         st.session_state.recs = []
         st.rerun()
 
-    if st.session_state.history:
-        st.subheader("Current Sequence")
-        st.table(st.session_state.history[-10:])
-        
-        if st.button("Reset Session"):
-            st.session_state.history = []
-            st.session_state.recs = []
-            st.rerun()
+engine = get_inference_engine(ckpt_path, device_opt)
 
-with col_right:
-    st.header("Recommendations")
-    
-    if st.button("Predict"):
-        if engine and st.session_state.history:
-            with st.spinner("Predicting..."):
-                aids = [e['aid'] for e in st.session_state.history]
-                top_aids, top_scores = engine.recommend_topk(aids, k=20)
-                st.session_state.recs = list(zip(top_aids, top_scores))
-        else:
-            st.warning("Model not loaded or history empty.")
+st.title("Visual Recommendation Explorer")
 
-    if st.session_state.recs:
-        # Display as a clean table
-        recs_df = [{"Rank": i+1, "Item AID": aid, "Score": f"{score:.4f}"} 
-                   for i, (aid, score) in enumerate(st.session_state.recs)]
-        st.table(recs_df)
-    else:
-        st.info("No recommendations yet.")
+if not engine:
+    st.error("Model engine failed to load.")
+    st.stop()
 
-# --- Info ---
+# --- Catalog with Pagination ---
+st.header("Product Catalog")
+
+items_per_page = 24
+catalog_size = len(st.session_state.catalog)
+total_pages = math.ceil(catalog_size / items_per_page)
+
+# Cấu trúc điều khiển phân trang
+c_pag1, c_pag2 = st.columns([1, 4])
+with c_pag1:
+    page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, step=1, key="catalog_page_input")
+with c_pag2:
+    st.write("") 
+    st.write(f"Items per page: **{items_per_page}** | Total items: **{catalog_size}**")
+    st.info(f"You are on page **{page}** of **{total_pages}**")
+
+start_idx = (page - 1) * items_per_page
+end_idx = min(start_idx + items_per_page, catalog_size)
+current_items = st.session_state.catalog[start_idx:end_idx]
+
+# Grid display
+rows = math.ceil(len(current_items) / 4)
+for r in range(rows):
+    grid_cols = st.columns(4)
+    for c in range(4):
+        idx = r * 4 + c
+        if idx < len(current_items):
+            aid = current_items[idx]
+            with grid_cols[c]:
+                img = get_image_for_aid(aid, all_images)
+                if img:
+                    st.image(img, use_container_width=True)
+                
+                # Show ID
+                st.caption(f"AID: {aid}")
+                
+                with st.popover("Action"):
+                    if st.button("Click", key=f"c_{aid}_{idx}_{page}"):
+                        st.session_state.history.append({"aid": aid, "type": "clicks"})
+                        st.toast(f"Clicked Item {aid}")
+                    if st.button("Add to Cart", key=f"a_{aid}_{idx}_{page}"):
+                        st.session_state.history.append({"aid": aid, "type": "carts"})
+                        st.toast(f"Added Item {aid} to Cart")
+                    if st.button("Order", key=f"o_{aid}_{idx}_{page}"):
+                        st.session_state.history.append({"aid": aid, "type": "orders"})
+                        st.toast(f"Ordered Item {aid}")
+
 st.divider()
-with st.expander("Technical Details"):
-    if engine:
-        st.write(f"Max Sequence Length: {engine.max_len}")
-        st.write(f"Total Items: {engine.num_items}")
+
+# --- History ---
+if st.session_state.history:
+    st.subheader("Your Journey")
+    h_cols = st.columns(min(len(st.session_state.history), 10))
+    for i, event in enumerate(reversed(st.session_state.history[:10])):
+        with h_cols[i % 10]:
+            h_img = get_image_for_aid(event['aid'], all_images)
+            if h_img: st.image(h_img, width=80)
+            st.caption(f"{event['type']}\nID: {event['aid']}")
+
+st.divider()
+
+# --- Recommendation Logic ---
+if st.button("GENERATE RECOMMENDATIONS", use_container_width=True, type="primary"):
+    if st.session_state.history:
+        with st.spinner("Calculating..."):
+            aids = [e['aid'] for e in st.session_state.history]
+            top_aids, top_scores = engine.recommend_topk(aids, k=20)
+            st.session_state.recs = list(zip(top_aids, top_scores))
     else:
-        st.write("Model not loaded.")
+        st.warning("Interact with products first!")
+
+# --- Results (Top 20) ---
+if st.session_state.recs:
+    st.header("Top 20 Recommendations")
+    res_cols = st.columns(4)
+    for i, item in enumerate(st.session_state.recs):
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            r_aid, score = item
+        else:
+            r_aid = item
+            score = 0.0
+            
+        with res_cols[i % 4]:
+            r_img = get_image_for_aid(r_aid, all_images)
+            if r_img:
+                st.image(r_img, use_container_width=True)
+            
+            # Show ID
+            st.write(f"**ID: {r_aid}**")
+            
+            with st.popover("Details"):
+                st.write(f"Confidence Score: **{score:.4f}**")
+                st.write(f"Item ID: `{r_aid}`")
