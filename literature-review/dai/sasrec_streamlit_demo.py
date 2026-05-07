@@ -230,26 +230,28 @@ for r in range(rows):
     grid_cols = st.columns(4)
     for c in range(4):
         idx = r * 4 + c
-        if idx < len(current_items):
-            aid = current_items[idx]
-            with grid_cols[c]:
-                img = get_image_for_aid(aid, all_images)
-                if img:
-                    st.image(img, use_container_width=True)
-                
-                # Show ID
-                st.caption(f"AID: {aid}")
-                
-                with st.popover("Action"):
-                    if st.button("Click", key=f"c_{aid}_{idx}_{page}"):
+        if idx < catalog_size:
+            if idx < len(current_items):
+                aid = current_items[idx]
+                with grid_cols[c]:
+                    img = get_image_for_aid(aid, all_images)
+                    if img:
+                        st.image(img, use_container_width=True)
+                    
+                    # Main Click Action (View)
+                    if st.button(f"View Item {aid}", key=f"c_{aid}_{idx}_{page}", use_container_width=True):
                         st.session_state.history.append({"aid": aid, "type": "clicks"})
                         st.toast(f"Clicked Item {aid}")
-                    if st.button("Add to Cart", key=f"a_{aid}_{idx}_{page}"):
+                    
+                    # Side Actions (Cart & Buy)
+                    btn_c1, btn_c2 = st.columns(2)
+                    if btn_c1.button("Cart", key=f"a_{aid}_{idx}_{page}", use_container_width=True):
                         st.session_state.history.append({"aid": aid, "type": "carts"})
-                        st.toast(f"Added Item {aid} to Cart")
-                    if st.button("Order", key=f"o_{aid}_{idx}_{page}"):
+                        st.toast(f"Added {aid} to Cart")
+                        
+                    if btn_c2.button("Buy", key=f"o_{aid}_{idx}_{page}", use_container_width=True):
                         st.session_state.history.append({"aid": aid, "type": "orders"})
-                        st.toast(f"Ordered Item {aid}")
+                        st.toast(f"Ordered {aid}")
 
 st.divider()
 
