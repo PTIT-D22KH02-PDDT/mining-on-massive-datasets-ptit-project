@@ -32,7 +32,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 2. Install `uv` (optional; you can also use `python -m venv` + `pip`):
    ```powershell
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   pip install uv
    ```
 3. Install Docker Desktop (https://docs.docker.com/desktop/) or use WSL2 with
    `docker` in Linux.
