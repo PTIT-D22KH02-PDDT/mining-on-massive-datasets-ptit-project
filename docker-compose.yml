@@ -1,63 +1,58 @@
 services:
-#  spark-master:
-#    image: spark:4.0.1-java21-python3
-#    container_name: spark-master
-#    environment:
-#      - SPARK_MODE=master
-#      - SPARK_MASTER_HOST=spark-master
-#    ports:
-#      - "7077:7077"
-#      - "8080:8080"
-#    # Run in foreground to keep container alive and show logs
-#    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
-#    networks:
-#      - spark-net
-#    deploy:
-#      resources:
-#        limits:
-#          cpus: '1.0'
-#          memory: 1g
+  # Spark services commented out - enable if needed
+  # spark-master:
+  #   image: apache/spark:3.5.0
+  #   environment:
+  #     - SPARK_MODE=master
+  #     - SPARK_MASTER_HOST=spark-master
+  #   ports:
+  #     - "7077:7077"
+  #     - "8080:8080"
+  #   networks:
+  #     - spark-net
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2.0'
+  #         memory: 4g
 
-#  spark-worker:
-#    image: spark:4.0.1-java21-python3
-#    container_name: spark-worker
-#    depends_on:
-#      - spark-master
-#    environment:
-#      - SPARK_MODE=worker
-#      - SPARK_MASTER=spark://spark-master:7077
-#      - SPARK_WORKER_CORES=2
-#      - SPARK_WORKER_MEMORY=2g
-#    volumes:
-#      - ./:/opt/app:ro
-#    # Run in foreground to keep container alive
-#    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
-#    networks:
-#      - spark-net
-#    deploy:
-#      resources:
-#        limits:
-#          cpus: '1.0'
-#          memory: 1g
+  # spark-worker:
+  #   image: apache/spark:3.5.0
+  #   depends_on:
+  #     - spark-master
+  #   environment:
+  #     - SPARK_MODE=worker
+  #     - SPARK_MASTER=spark://spark-master:7077
+  #     - SPARK_WORKER_CORES=2
+  #     - SPARK_WORKER_MEMORY=4g
+  #   volumes:
+  #     - ./:/opt/app:ro
+  #   networks:
+  #     - spark-net
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2.0'
+  #         memory: 4g
 
-#  spark-app:
-#    build: .
-#    container_name: spark-app
-#    depends_on:
-#      - spark-master
-#    volumes:
-#      - ./:/opt/app:ro
-#    working_dir: /opt/app
-#    environment:
-#      - PYSPARK_PYTHON=/usr/bin/python3
-#      - SPARK_MASTER=spark://spark-master:7077
-#    networks:
-#      - spark-net
-#    deploy:
-#      resources:
-#        limits:
-#          cpus: '1.0'
-#          memory: 1g
+  # spark-app:
+  #   image: apache/spark:3.5.0
+  #   depends_on:
+  #     - spark-master
+  #   volumes:
+  #     - ./:/opt/app:ro
+  #   working_dir: /opt/app
+  #   environment:
+  #     - PYSPARK_PYTHON=python3
+  #     - SPARK_MASTER=spark://spark-master:7077
+  #   networks:
+  #     - spark-net
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2.0'
+  #         memory: 4g
+
   kafka:
     image: docker.io/apache/kafka:4.1.1
     container_name: kafka
@@ -81,24 +76,54 @@ services:
       - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
       - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
       - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
-    healthcheck:
-      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      # Fix hostname resolution issue
+      - KAFKA_OPTS=-Djava.net.preferIPv4Stack=true
 
   kafka-ui:
     image: provectuslabs/kafka-ui
-    container_name: kafka-ui
     ports:
       - "8989:8080"
     depends_on:
-      kafka:
-        condition: service_healthy
+      - kafka
     restart: always
     environment:
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru
+    networks:
+      - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1.5g
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=otto_recommender
+      - POSTGRES_USER=otto
+      - POSTGRES_PASSWORD=otto123
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    networks:
+      - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2g
+
 networks:
   spark-net:
     driver: bridge
+
+volumes:
+  pgdata:
