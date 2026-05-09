@@ -30,6 +30,8 @@ class Database:
         if self._conn is None or self._conn.closed:
             self._conn = psycopg2.connect(**self.conn_params)
             self._conn.autocommit = True
+            with self._conn.cursor() as cur:
+                cur.execute("SET TIME ZONE 'Asia/Ho_Chi_Minh'")
         return self._conn
 
     @contextmanager
@@ -77,11 +79,11 @@ class Database:
             logger.error(f"Failed to log event: {e}")
 
     def get_popular_items(self, event_type: str = "clicks", limit: int = 20) -> List[int]:
-        """Get pre-computed popular items (AIDs only)."""
+        """Get pre-computed popular items (AIDs only). Sort by count DESC."""
         try:
             with self.cursor() as cur:
                 cur.execute(
-                    "SELECT aid FROM popular_items WHERE event_type = %s AND time_scope = 'all_time' ORDER BY rank LIMIT %s",
+                    "SELECT aid FROM popular_items WHERE event_type = %s AND time_scope = 'all_time' ORDER BY count DESC LIMIT %s",
                     (event_type, limit),
                 )
                 return [row["aid"] for row in cur.fetchall()]
@@ -90,20 +92,45 @@ class Database:
             return []
 
     def get_popular_items_with_counts(self, event_type: str = "clicks", limit: int = 10) -> List[Dict]:
-        """Get popular items with counts for visualization."""
+        """Get popular items with counts for visualization. Sort by count DESC."""
         try:
             with self.cursor() as cur:
                 cur.execute("""
                     SELECT aid, count, rank
                     FROM popular_items
                     WHERE event_type = %s AND time_scope = 'all_time'
-                    ORDER BY rank ASC
+                    ORDER BY count DESC
                     LIMIT %s
                 """, (event_type, limit))
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:
             logger.error(f"Failed to get popular items with counts: {e}")
             return []
+
+    def refresh_popular_items_ranks(self):
+        """
+        Update the rank column in PostgreSQL based on counts.
+        Since Spark updates counts incrementally, the rank column becomes stale.
+        This method re-calculates ranks for all items.
+        """
+        try:
+            with self.cursor() as cur:
+                cur.execute("""
+                    WITH ranked AS (
+                        SELECT aid, event_type, time_scope,
+                               ROW_NUMBER() OVER (PARTITION BY event_type, time_scope ORDER BY count DESC) as new_rank
+                        FROM popular_items
+                    )
+                    UPDATE popular_items
+                    SET rank = ranked.new_rank
+                    FROM ranked
+                    WHERE popular_items.aid = ranked.aid 
+                      AND popular_items.event_type = ranked.event_type 
+                      AND popular_items.time_scope = ranked.time_scope
+                """)
+            logger.info("Popular items ranks successfully refreshed in DB.")
+        except Exception as e:
+            logger.error(f"Failed to refresh popular items ranks: {e}")
 
     def get_prediction_stats(self) -> Dict[str, Any]:
         """Get aggregate prediction statistics."""
@@ -261,6 +288,16 @@ class Database:
                 )
         except Exception as e:
             logger.error(f"Failed to log online hit: {e}")
+
+    def get_advanced_funnel_stats(self) -> List[Dict]:
+        """Get performance funnel metrics per recommendation model."""
+        try:
+            with self.cursor() as cur:
+                cur.execute("SELECT * FROM advanced_funnel_stats ORDER BY total_sessions DESC")
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get advanced funnel stats: {e}")
+            return []
 
     def get_hit_rate_stats(self) -> Dict[str, float]:
         """Get aggregate online hit rates."""

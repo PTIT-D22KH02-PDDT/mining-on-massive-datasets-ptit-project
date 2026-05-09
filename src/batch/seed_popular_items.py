@@ -1,0 +1,107 @@
+"""
+Seed Popular Items (Spark Batch Job) - OTTO Recommender System.
+Pre-computes top items per event type and saves to PostgreSQL.
+Provides data for the Cold Start recommendation strategy.
+"""
+
+import sys
+import logging
+from pathlib import Path
+from pyspark.sql import SparkSession, Window
+from pyspark.sql.functions import (
+    col, explode, count, row_number, lit
+)
+from pyspark.sql.types import StructType, StructField, LongType, StringType, ArrayType
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
+logger = logging.getLogger(__name__)
+
+# --- Configuration ---
+root_dir = Path(__file__).resolve().parents[2]
+DATA_PATH = str(root_dir / "datasets" / "otto-recommender-system" / "test.jsonl")
+TOP_K = 100
+
+PG_URL = "jdbc:postgresql://localhost:5432/otto_recommender"
+PG_PROPERTIES = {
+    "user": "otto",
+    "password": "otto123",
+    "driver": "org.postgresql.Driver"
+}
+
+def main():
+    spark = SparkSession.builder \
+        .appName("OTTO-Seed-Popular-Items") \
+        .config("spark.jars.packages", "org.postgresql:postgresql:42.7.1") \
+        .config("spark.driver.memory", "4g") \
+        .getOrCreate()
+
+    spark.sparkContext.setLogLevel("WARN")
+    logger.info("Spark Session Initialized.")
+
+    # 1. Define schema & Load Data
+    event_schema = StructType([
+        StructField("aid", LongType(), True),
+        StructField("ts", LongType(), True),
+        StructField("type", StringType(), True)
+    ])
+    
+    schema = StructType([
+        StructField("session", LongType(), True),
+        StructField("events", ArrayType(event_schema), True)
+    ])
+
+    logger.info(f"Reading data from {DATA_PATH}...")
+    if not Path(DATA_PATH).exists():
+        logger.error(f"Data path {DATA_PATH} does not exist.")
+        sys.exit(1)
+
+    try:
+        raw_df = spark.read.json(DATA_PATH, schema=schema)
+    except Exception as e:
+        logger.error(f"Cannot read data: {e}")
+        sys.exit(1)
+
+    # 2. Flatten events
+    events_df = raw_df.select(
+        explode("events").alias("event")
+    ).select(
+        col("event.aid").alias("aid"),
+        col("event.type").alias("event_type")
+    )
+    
+    # 3. Aggregate counts per type and aid
+    logger.info("Calculating popular items...")
+    agg_df = events_df.groupBy("event_type", "aid").agg(
+        count("*").alias("count")
+    )
+    
+    # 4. Rank items within each event type using Window function
+    window_spec = Window.partitionBy("event_type").orderBy(col("count").desc())
+    
+    ranked_df = agg_df.withColumn("rank", row_number().over(window_spec)) \
+                      .filter(col("rank") <= TOP_K) \
+                      .withColumn("time_scope", lit("all_time"))
+
+    # Select columns in the order expected by the DB table
+    # Schema: (time_scope, event_type, aid, count, rank)
+    final_df = ranked_df.select("time_scope", "event_type", "aid", "count", "rank")
+
+    # 5. Write to PostgreSQL
+    logger.info(f"Writing top {TOP_K} items to PostgreSQL...")
+    try:
+        # Use overwrite mode to clear old data
+        final_df.write \
+            .format("jdbc") \
+            .option("url", PG_URL) \
+            .option("dbtable", "popular_items") \
+            .options(**PG_PROPERTIES) \
+            .mode("overwrite") \
+            .save()
+        logger.info("Successfully seeded 'popular_items' table.")
+    except Exception as e:
+        logger.error(f"Failed to write to DB: {e}")
+
+    spark.stop()
+
+if __name__ == "__main__":
+    main()

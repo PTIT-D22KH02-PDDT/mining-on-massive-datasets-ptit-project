@@ -32,7 +32,7 @@ class ColdStartRecommender:
         return self._popular_cache[cache_key]
 
     def recommend_empty_session(self, top_k: int = 20) -> Dict[str, List[int]]:
-        """Session with 0 events → global popular items."""
+        """Session with 0 events: global popular items."""
         return {
             "clicks": self._get_popular("clicks", top_k),
             "carts": self._get_popular("carts", top_k),
@@ -43,7 +43,7 @@ class ColdStartRecommender:
         self, session_aids: List[int], top_k: int = 20
     ) -> Dict[str, List[int]]:
         """
-        Session with 1-2 events → covisitation + popular items fallback.
+        Session with 1-2 events: covisitation + popular items fallback.
         """
         result = {"clicks": [], "carts": [], "orders": []}
 

@@ -32,7 +32,7 @@ async def replay_session(
     session_id = session_data["session"]
     events = session_data["events"]
 
-    logger.info(f"▶ Starting session {session_id} ({len(events)} events)")
+    logger.info(f"Starting session {session_id} ({len(events)} events)")
 
     for i, event in enumerate(events):
         payload = {
@@ -49,7 +49,7 @@ async def replay_session(
                 recs_clicks = data["recommendations"].get("clicks", [])[:5]
                 logger.info(
                     f"  [{session_id}] Event {i+1}/{len(events)}: "
-                    f"{event['type']:6s} aid={event['aid']:>8d} → "
+                    f"{event['type']:6s} aid={event['aid']:>8d} - "
                     f"model={data['model_used']}, "
                     f"latency={data['latency_ms']:.1f}ms, "
                     f"top5_clicks={recs_clicks}"
@@ -63,7 +63,7 @@ async def replay_session(
         if speed > 0 and i < len(events) - 1:
             await asyncio.sleep(delay_between_events / speed)
 
-    logger.info(f"✓ Session {session_id} completed ({len(events)} events)")
+    logger.info(f"Session {session_id} completed ({len(events)} events)")
 
 
 async def run_simulator(
