@@ -5,6 +5,7 @@ Provides data for the Cold Start recommendation strategy.
 """
 
 import sys
+import os
 import logging
 from pathlib import Path
 from pyspark.sql import SparkSession, Window
@@ -21,7 +22,8 @@ root_dir = Path(__file__).resolve().parents[2]
 DATA_PATH = str(root_dir / "datasets" / "otto-recommender-system" / "test.jsonl")
 TOP_K = 100
 
-PG_URL = "jdbc:postgresql://localhost:5432/otto_recommender"
+PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
+PG_URL = f"jdbc:postgresql://{PG_HOST}:5432/otto_recommender"
 PG_PROPERTIES = {
     "user": "otto",
     "password": "otto123",
@@ -89,11 +91,12 @@ def main():
     # 5. Write to PostgreSQL
     logger.info(f"Writing top {TOP_K} items to PostgreSQL...")
     try:
-        # Use overwrite mode to clear old data
+        # Use overwrite mode with truncate to preserve constraints (like UNIQUE)
         final_df.write \
             .format("jdbc") \
             .option("url", PG_URL) \
             .option("dbtable", "popular_items") \
+            .option("truncate", "true") \
             .options(**PG_PROPERTIES) \
             .mode("overwrite") \
             .save()

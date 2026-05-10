@@ -11,7 +11,10 @@ st.set_page_config(
     layout="wide",
 )
 
-API_URL = "http://localhost:8000"
+import os
+API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
+st.sidebar.caption(f"Connected to API: {API_URL}")
+
 
 def get_stats():
     try:

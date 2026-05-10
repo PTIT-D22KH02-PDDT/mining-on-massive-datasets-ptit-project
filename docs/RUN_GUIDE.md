@@ -1,82 +1,67 @@
-# Hướng dẫn chạy hệ thống pipeline
+# Hướng dẫn Vận hành Hệ thống OTTO Recommender
+
+Dự án đã được cấu hình hóa hoàn toàn bằng Docker Compose. Chỉ cần một lệnh duy nhất để khởi động toàn bộ hệ thống (Hạ tầng, Tiền xử lý, Backend API, Spark Streaming, và Giao diện Dashboard).
 
 ---
 
-## 1. Khởi động Hạ tầng (Docker)
-Đảm bảo bạn đã cài đặt Docker và Docker Compose. Hệ thống sử dụng Kafka (Message Queue), PostgreSQL (Database), và Redis (Cache).
+## 1. Khởi động Toàn bộ Hệ thống
+
+Đảm bảo bạn đã cài đặt Docker và Docker Compose. Mở terminal tại thư mục gốc của dự án và chạy:
 
 ```bash
-# Khởi động Kafka, Postgres, Redis ở chế độ chạy ngầm
-docker-compose up -d
+# Khởi động toàn bộ dịch vụ (build lại image nếu cần)
+docker-compose up -d --build
 
-# Kiểm tra trạng thái các container
-docker ps
+# Kiểm tra log của các dịch vụ để đảm bảo chúng đang chạy
+docker-compose logs -f
 ```
+
+Lệnh trên sẽ tự động:
+1. Chạy các dịch vụ hạ tầng: **Kafka**, **PostgreSQL**, **Redis**.
+2. Tự động tạo topic Kafka và chạy các batch script tiền xử lý dữ liệu qua container `setup-jobs`.
+3. Khởi động **FastAPI Backend** (port 8000).
+4. Khởi động **Spark Streaming Job** để xử lý dữ liệu realtime.
+5. Khởi động **Streamlit Dashboard** (port 8501).
 
 ---
 
-## 2. Khởi tạo Kafka Topic
-Bạn cần tạo topic `user-events` trước khi bắt đầu gửi dữ liệu.
+## 2. Truy cập các Dịch vụ
 
-```bash
-python src/scripts/create_kafka_topic.py
-```
+Khi hệ thống đã chạy lên (khoảng 30 giây đến 1 phút để tải xong các thư viện Spark), bạn có thể truy cập:
 
----
-
-
-## 3. Chạy các Dịch vụ Lõi
-
-### A. Khởi chạy Backend API
-API xử lý việc nhận sự kiện và trả về kết quả gợi ý.
-
-```bash
-# Chạy API với port 8000
-python src/api/main.py
-```
-
-### B. Khởi chạy Spark Streaming Job
-Đây là công cụ xử lý dữ liệu thời gian thực, tính toán phễu và hiệu suất model.
-
-```bash
-python src/streaming/spark_streaming_job.py
-```
-*Lưu ý: Nếu gặp lỗi state corruption, hãy chạy: `rm -rf /tmp/spark-checkpoints/otto-streaming` trước khi chạy lệnh trên.*
+- **Dashboard Giao diện**: [http://localhost:8501](http://localhost:8501)
+- **API Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Kafka UI** (Theo dõi dòng sự kiện): [http://localhost:8989](http://localhost:8989)
 
 ---
 
-## 4. Khởi chạy Dashboard Giao diện
+## 3. Quản lý Hệ thống
 
-
+### Dừng hệ thống
 ```bash
-streamlit run streamlit_app.py
-```
-Truy cập tại: `http://localhost:8501`
-
----
-
-## 4. Chạy các file python độc lập để chuẩn bị dữ liệu
-
-```bash
-python src/batch/seed_popular_items.py
+docker-compose down
 ```
 
-
+### Xóa toàn bộ dữ liệu (Database, Kafka, Checkpoints)
+Nếu bạn muốn reset lại toàn bộ từ đầu (Clean state):
 ```bash
-python src/batch/funnel_analysis.py
+docker-compose down -v
+rm -rf ./spark-checkpoints
+```
+
+### Tiền xử lý dữ liệu (Cực kỳ quan trọng)
+*Lưu ý:* Ma trận liên kết sản phẩm (`CovisitationMatrix`) là cần thiết để AI gợi ý hoạt động tốt. Việc build matrix tiêu tốn khá nhiều RAM nên không được đưa vào tự động khởi chạy. Bạn cần tự chạy tập lệnh sau ở local của mình để xuất dữ liệu ra thư mục `datasets/processed/`:
+```bash
+python src/trainer/preprocess/CovisitationMatrixBuilder.py
 ```
 
 ---
 
-## 5. Chạy client.py giả lập 
-
-```bash
-python src/batch/client.py --file <đường dẫn file test.jsonl>
-```
-
-## Phụ lục: Các Port quan trọng
-- **API**: 8000
-- **Dashboard**: 8501
-- **Kafka UI**: 8989 (Xem dữ liệu trên Kafka qua trình duyệt)
-- **Postgres**: 5432
-- **Redis**: 6379
+## Phụ lục: Kiến trúc Container
+- `kafka`: Broker Message Queue
+- `postgres`: Lưu trữ Database thống kê
+- `redis`: Session cache cho User
+- `api`: FastAPI Backend
+- `dashboard`: Giao diện Streamlit
+- `spark-streaming`: Job PySpark xử lý realtime
+- `setup-jobs`: Script tạo dữ liệu ban đầu (chạy xong tự tắt)

@@ -4,6 +4,7 @@ Calculates session-level funnels, session segmentation, and advanced item-level 
 """
 
 import sys
+import os
 import logging
 from pathlib import Path
 from pyspark.sql import SparkSession
@@ -21,7 +22,8 @@ logger = logging.getLogger(__name__)
 root_dir = Path(__file__).resolve().parents[2]
 DATA_PATH = str(root_dir / "datasets" / "otto-recommender-system" / "test.jsonl")
 
-PG_URL = "jdbc:postgresql://localhost:5432/otto_recommender"
+PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
+PG_URL = f"jdbc:postgresql://{PG_HOST}:5432/otto_recommender"
 PG_PROPERTIES = {
     "user": "otto",
     "password": "otto123",
@@ -141,10 +143,22 @@ def main():
         max(when(col("type") == "orders", 1).otherwise(0)).alias("has_order")
     )
 
-    advanced_funnel_df = item_lifecycle_df.agg(
-        spark_sum("has_click").alias("items_clicked"),
-        spark_sum(when((col("has_click") == 1) & (col("has_cart") == 1), 1).otherwise(0)).alias("items_clicked_then_carted"),
-        spark_sum(when((col("has_click") == 1) & (col("has_cart") == 1) & (col("has_order") == 1), 1).otherwise(0)).alias("items_clicked_carted_ordered")
+    # Fix: Correctly compute columns for 'advanced_funnel_stats' table
+    advanced_funnel_df = session_agg.agg(
+        lit("Batch Analysis (test.jsonl)").alias("model_used"),
+        count("*").alias("total_sessions"),
+        spark_sum("has_clicks").alias("sessions_with_clicks"),
+        spark_sum("has_carts").alias("sessions_with_carts"),
+        spark_sum("has_orders").alias("sessions_with_orders")
+    ).withColumn(
+        "click_to_order_rate",
+        when(col("sessions_with_clicks") > 0, col("sessions_with_orders").cast("double") / col("sessions_with_clicks").cast("double")).otherwise(0.0)
+    ).withColumn("last_updated", current_timestamp())
+
+    # Ensure columns are in the exact order as the DB table
+    advanced_funnel_df = advanced_funnel_df.select(
+        "model_used", "total_sessions", "sessions_with_clicks", 
+        "sessions_with_carts", "sessions_with_orders", "click_to_order_rate", "last_updated"
     )
 
     # --- SAVE TO POSTGRESQL ---
@@ -162,6 +176,7 @@ def main():
             .format("jdbc") \
             .option("url", PG_URL) \
             .option("dbtable", "funnel_stats") \
+            .option("truncate", "true") \
             .options(**PG_PROPERTIES) \
             .mode("overwrite") \
             .save()
@@ -172,6 +187,7 @@ def main():
             .format("jdbc") \
             .option("url", PG_URL) \
             .option("dbtable", "stats_sessions") \
+            .option("truncate", "true") \
             .options(**PG_PROPERTIES) \
             .mode("overwrite") \
             .save()
@@ -182,6 +198,7 @@ def main():
             .format("jdbc") \
             .option("url", PG_URL) \
             .option("dbtable", "advanced_funnel_stats") \
+            .option("truncate", "true") \
             .options(**PG_PROPERTIES) \
             .mode("overwrite") \
             .save()

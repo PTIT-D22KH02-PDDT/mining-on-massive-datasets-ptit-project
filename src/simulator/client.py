@@ -39,7 +39,7 @@ async def replay_session(
             "session_id": session_id,
             "aid": event["aid"],
             "type": event["type"],
-            "ts": event.get("ts"),
+            "ts": int(time.time() * 1000), # Use current time for streaming compatibility
         }
 
         try:

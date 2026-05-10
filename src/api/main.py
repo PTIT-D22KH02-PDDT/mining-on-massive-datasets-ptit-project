@@ -89,10 +89,15 @@ async def lifespan(app: FastAPI):
     logger.info("Starting OTTO API Server...")
 
     # Init Redis
-    session_mgr = SessionManager(host="localhost", port=6379)
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    session_mgr = SessionManager(host=redis_host, port=6379)
 
     # Init PostgreSQL
-    db = Database(host="localhost", port=5432, dbname="otto_recommender", user="otto", password="otto123")
+    pg_host = os.getenv("POSTGRES_HOST", "localhost")
+    pg_user = os.getenv("POSTGRES_USER", "otto")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "otto123")
+    pg_db = os.getenv("POSTGRES_DB", "otto_recommender")
+    db = Database(host=pg_host, port=5432, dbname=pg_db, user=pg_user, password=pg_pass)
 
     # Init Covisitation recommender
     try:

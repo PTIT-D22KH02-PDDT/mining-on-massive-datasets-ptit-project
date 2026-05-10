@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS stats_items (
 );
 
 CREATE TABLE IF NOT EXISTS stats_sessions (
-    session_type VARCHAR(30) PRIMARY KEY,
+    session_type VARCHAR(255) PRIMARY KEY,
     count INT DEFAULT 0,
     avg_length FLOAT DEFAULT 0,
     avg_duration_sec FLOAT DEFAULT 0,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS funnel_stats (
 
 -- Advanced Funnel (Model Performance Evaluation)
 CREATE TABLE IF NOT EXISTS advanced_funnel_stats (
-    model_used VARCHAR(30) PRIMARY KEY,
+    model_used VARCHAR(255) PRIMARY KEY,
     total_sessions BIGINT DEFAULT 0,
     sessions_with_clicks BIGINT DEFAULT 0,
     sessions_with_carts BIGINT DEFAULT 0,
@@ -68,19 +68,19 @@ CREATE TABLE IF NOT EXISTS advanced_funnel_stats (
 --------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS popular_items (
     id SERIAL PRIMARY KEY,
-    time_scope VARCHAR(20),
-    event_type VARCHAR(10),
+    time_scope VARCHAR(255) NOT NULL,
+    event_type VARCHAR(255) NOT NULL,
     aid INT NOT NULL,
     count INT NOT NULL,
     rank INT NOT NULL,
     computed_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(time_scope, event_type, aid)
+    CONSTRAINT unique_popularity_idx UNIQUE(time_scope, event_type, aid)
 );
 
 CREATE TABLE IF NOT EXISTS predictions_log (
     id SERIAL PRIMARY KEY,
     session_id BIGINT NOT NULL,
-    model_used VARCHAR(30),
+    model_used VARCHAR(255),
     session_length INT,
     predicted_clicks INT[],
     predicted_carts INT[],
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS collected_events (
     id SERIAL PRIMARY KEY,
     session_id BIGINT NOT NULL,
     aid INT NOT NULL,
-    event_type VARCHAR(10) NOT NULL,
+    event_type VARCHAR(255) NOT NULL,
     ts BIGINT,
     created_at TIMESTAMP DEFAULT NOW()
 );
@@ -143,15 +143,15 @@ CREATE TABLE IF NOT EXISTS online_evaluation (
 CREATE TABLE IF NOT EXISTS anomaly_logs (
     id SERIAL PRIMARY KEY,
     session_id BIGINT NOT NULL,
-    anomaly_type VARCHAR(30),
+    anomaly_type VARCHAR(255),
     details JSONB,
     detected_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS spark_metrics (
     id SERIAL PRIMARY KEY,
-    query_id VARCHAR(50),
-    query_name VARCHAR(100),
+    query_id VARCHAR(255),
+    query_name VARCHAR(255),
     batch_id BIGINT,
     input_rows_per_second FLOAT,
     process_rows_per_second FLOAT,

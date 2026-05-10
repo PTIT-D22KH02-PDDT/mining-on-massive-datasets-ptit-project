@@ -17,12 +17,14 @@ class Database:
 
     def __init__(
         self,
-        host: str = "localhost",
+        host: str = None,
         port: int = 5432,
         dbname: str = "otto_recommender",
         user: str = "otto",
         password: str = "otto123",
     ):
+        import os
+        host = host or os.getenv("POSTGRES_HOST", "localhost")
         self.conn_params = dict(host=host, port=port, dbname=dbname, user=user, password=password)
         self._conn = None
 

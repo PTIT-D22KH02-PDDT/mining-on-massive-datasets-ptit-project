@@ -21,7 +21,8 @@ KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092"
 KAFKA_TOPIC = "user-events"
 CHECKPOINT_LOCATION = "/tmp/spark-checkpoints/otto-streaming"
 
-PG_URL = "jdbc:postgresql://localhost:5432/otto_recommender"
+PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
+PG_URL = f"jdbc:postgresql://{PG_HOST}:5432/otto_recommender"
 PG_PROPERTIES = {
     "user": "otto",
     "password": "otto123",
@@ -47,7 +48,7 @@ class MetricsListener(StreamingQueryListener):
         try:
             # Extract metrics from the progress object
             conn = psycopg2.connect(
-                host="localhost", port=5432, dbname="otto_recommender", 
+                host=os.getenv("POSTGRES_HOST", "localhost"), port=5432, dbname="otto_recommender", 
                 user="otto", password="otto123"
             )
             with conn.cursor() as cur:
@@ -211,8 +212,9 @@ def main():
                 # Real-time UPSERT logic using psycopg2 for efficiency in micro-batches
                 def upsert_popularity(rows):
                     import psycopg2
+                    import os
                     conn = psycopg2.connect(
-                        host="localhost", port=5432, dbname="otto_recommender", 
+                        host=os.getenv("POSTGRES_HOST", "localhost"), port=5432, dbname="otto_recommender", 
                         user="otto", password="otto123"
                     )
                     with conn.cursor() as cur:
@@ -237,7 +239,7 @@ def main():
                 def upsert_items(rows):
                     import psycopg2
                     conn = psycopg2.connect(
-                        host="localhost", port=5432, dbname="otto_recommender", 
+                        host=os.getenv("POSTGRES_HOST", "localhost"), port=5432, dbname="otto_recommender", 
                         user="otto", password="otto123"
                     )
                     with conn.cursor() as cur:
@@ -276,7 +278,7 @@ def main():
                 def upsert_advanced_funnel(rows):
                     import psycopg2
                     conn = psycopg2.connect(
-                        host="localhost", port=5432, dbname="otto_recommender", 
+                        host=os.getenv("POSTGRES_HOST", "localhost"), port=5432, dbname="otto_recommender", 
                         user="otto", password="otto123"
                     )
                     with conn.cursor() as cur:

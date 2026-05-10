@@ -6,6 +6,7 @@ Stores session events as a list in Redis with TTL auto-cleanup.
 import json
 import time
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 import redis
@@ -18,7 +19,8 @@ SESSION_TTL_SECONDS = 30 * 60  # 30 minutes
 class SessionManager:
     """Manages user sessions in Redis."""
 
-    def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0):
+    def __init__(self, host: str = None, port: int = 6379, db: int = 0):
+        host = host or os.getenv("REDIS_HOST", "localhost")
         self.redis = redis.Redis(host=host, port=port, db=db, decode_responses=True)
         try:
             self.redis.ping()

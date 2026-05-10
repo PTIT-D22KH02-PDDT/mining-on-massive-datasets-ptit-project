@@ -1,8 +1,9 @@
 import asyncio
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
+import os
 async def create_topic():
-    bootstrap_servers = "localhost:29092"
+    bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092")
     topic_name = "user-events"
     
     print(f"Connecting to Kafka at {bootstrap_servers} using aiokafka...")
