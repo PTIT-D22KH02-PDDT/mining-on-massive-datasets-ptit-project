@@ -19,7 +19,8 @@ def _kafka_cfg() -> Dict[str, Any]:
     return cfg.get("kafka", {})
 
 def _bootstrap_servers() -> str:
-    return _kafka_cfg().get("bootstrap_servers", "localhost:29092")
+    import os
+    return os.getenv("KAFKA_BOOTSTRAP_SERVERS", _kafka_cfg().get("bootstrap_servers", "localhost:29092"))
 
 async def ensure_topics() -> tuple[List[str], bool]:
     """

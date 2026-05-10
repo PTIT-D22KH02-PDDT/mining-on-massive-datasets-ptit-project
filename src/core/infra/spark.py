@@ -54,5 +54,5 @@ def _start_spark(app_name: str | None = None) -> Tuple[SparkSession, spark_loggi
     spark_sess = builder.getOrCreate()
     spark_logger = spark_logging.Log4j(spark_sess)
 
-    logger.info(f"SparkSession started → master={master}  app={name}")
+    logger.info(f"SparkSession started - master={master}  app={name}")
     return spark_sess, spark_logger

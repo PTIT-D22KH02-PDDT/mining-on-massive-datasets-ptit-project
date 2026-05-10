@@ -1,63 +1,4 @@
 services:
-  #  spark-master:
-  #    image: spark:4.0.1-java21-python3
-  #    container_name: spark-master
-  #    environment:
-  #      - SPARK_MODE=master
-  #      - SPARK_MASTER_HOST=spark-master
-  #    ports:
-  #      - "7077:7077"
-  #      - "8080:8080"
-  #    # Run in foreground to keep container alive and show logs
-  #    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
-  #    networks:
-  #      - spark-net
-  #    deploy:
-  #      resources:
-  #        limits:
-  #          cpus: '1.0'
-  #          memory: 1g
-
-  #  spark-worker:
-  #    image: spark:4.0.1-java21-python3
-  #    container_name: spark-worker
-  #    depends_on:
-  #      - spark-master
-  #    environment:
-  #      - SPARK_MODE=worker
-  #      - SPARK_MASTER=spark://spark-master:7077
-  #      - SPARK_WORKER_CORES=2
-  #      - SPARK_WORKER_MEMORY=2g
-  #    volumes:
-  #      - ./:/opt/app:ro
-  #    # Run in foreground to keep container alive
-  #    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
-  #    networks:
-  #      - spark-net
-  #    deploy:
-  #      resources:
-  #        limits:
-  #          cpus: '1.0'
-  #          memory: 1g
-
-  #  spark-app:
-  #    build: .
-  #    container_name: spark-app
-  #    depends_on:
-  #      - spark-master
-  #    volumes:
-  #      - ./:/opt/app:ro
-  #    working_dir: /opt/app
-  #    environment:
-  #      - PYSPARK_PYTHON=/usr/bin/python3
-  #      - SPARK_MASTER=spark://spark-master:7077
-  #    networks:
-  #      - spark-net
-  #    deploy:
-  #      resources:
-  #        limits:
-  #          cpus: '1.0'
-  #          memory: 1g
   kafka:
     image: docker.io/apache/kafka:4.1.1
     container_name: kafka
@@ -66,39 +7,147 @@ services:
     volumes:
       - "./kafka_data:/var/lib/kafka/data"
     environment:
-      # KRaft settings
       - KAFKA_NODE_ID=0
       - KAFKA_PROCESS_ROLES=controller,broker
       - KAFKA_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
-      # Listeners
       - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
-      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://${KAFKA_HOST_EXTERNAL}:${KAFKA_PORT_EXTERNAL}
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://${KAFKA_HOST_EXTERNAL:-localhost}:29092
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
-      # Single-node optimizations
       - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
       - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
       - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
       - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
-    healthcheck:
-      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      - KAFKA_OPTS=-Djava.net.preferIPv4Stack=true
+    networks:
+      - spark-net
 
   kafka-ui:
     image: provectuslabs/kafka-ui
-    container_name: kafka-ui
     ports:
       - "8989:8080"
     depends_on:
-      kafka:
-        condition: service_healthy
+      - kafka
     restart: always
     environment:
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    networks:
+      - spark-net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru
+    networks:
+      - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1.5g
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=otto_recommender
+      - POSTGRES_USER=otto
+      - POSTGRES_PASSWORD=otto123
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    networks:
+      - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2g
+
+  # --- Application Services ---
+  
+  api:
+    build: .
+    image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-api:${DOCKER_TAG:-latest}
+    container_name: otto-api
+    command: python3 src/api/main.py
+    ports:
+      - "8000:8000"
+    depends_on:
+      - kafka
+      - postgres
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - POSTGRES_HOST=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
+    networks:
+      - spark-net
+      
+  dashboard:
+    build: .
+    image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-dashboard:${DOCKER_TAG:-latest}
+    container_name: otto-dashboard
+    command: streamlit run streamlit_app.py
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+    environment:
+      - API_URL=http://api:8000
+    networks:
+      - spark-net
+
+  spark-streaming:
+    build: .
+    image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-spark-streaming:${DOCKER_TAG:-latest}
+    container_name: otto-spark-streaming
+    command: python3 src/streaming/spark_streaming_job.py
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - POSTGRES_HOST=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    volumes:
+      - ./spark-checkpoints:/tmp/spark-checkpoints
+      - ./datasets:/opt/app/datasets
+    networks:
+      - spark-net
+
+  setup-jobs:
+    build: .
+    image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-setup:${DOCKER_TAG:-latest}
+    container_name: otto-setup
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - POSTGRES_HOST=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    command: >
+      bash -c "
+      echo 'Waiting for services to be ready...' &&
+      sleep 10 &&
+      echo 'Creating Kafka Topic...' &&
+      python3 src/scripts/create_kafka_topic.py &&
+      echo 'Running Initial Batch Analysis...' &&
+      python3 src/batch/funnel_analysis.py &&
+      python3 src/batch/seed_popular_items.py &&
+      echo 'Setup Complete!'
+      "
+    volumes:
+      - ./datasets:/opt/app/datasets
+    networks:
+      - spark-net
+
 networks:
   spark-net:
     driver: bridge
+
+volumes:
+  pgdata:

@@ -58,6 +58,10 @@ def _load_config(path: str | None = None) -> Dict[str, Any]:
 # Singleton cache
 cfg: Dict[str, Any] = _load_config()
 
+def get_config() -> Dict[str, Any]:
+    """Return the cached config dictionary."""
+    return cfg
+
 def reload_config(path: str | None = None) -> Dict[str, Any]:
     """Force-reload the config."""
     global cfg

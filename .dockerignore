@@ -1,0 +1,15 @@
+.venv
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.db
+.idea
+.vscode
+.python-version
+.ruff_cache
+datasets/
+kafka_data/
+spark-checkpoints/
