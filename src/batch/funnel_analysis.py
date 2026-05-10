@@ -10,7 +10,8 @@ from pathlib import Path
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, explode, count, countDistinct, 
-    when, min, max, sum as spark_sum, round as spark_round, expr, lit, avg
+    when, min, max, sum as spark_sum, round as spark_round, expr, lit, avg,
+    current_timestamp
 )
 from pyspark.sql.types import StructType, StructField, LongType, StringType, ArrayType
 
@@ -164,7 +165,7 @@ def main():
     # --- SAVE TO POSTGRESQL ---
     logger.info("Writing results to PostgreSQL...")
     
-    from pyspark.sql.functions import current_timestamp
+
     
     # Add computed_at for API ordering
     funnel_stats_df = funnel_stats_df.withColumn("computed_at", current_timestamp())
