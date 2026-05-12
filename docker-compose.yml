@@ -22,6 +22,12 @@ services:
       - KAFKA_OPTS=-Djava.net.preferIPv4Stack=true
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 
   kafka-ui:
     image: provectuslabs/kafka-ui
@@ -77,9 +83,12 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - kafka
-      - postgres
-      - redis
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
     environment:
       - REDIS_HOST=redis
       - POSTGRES_HOST=postgres
@@ -108,8 +117,10 @@ services:
     container_name: otto-spark-streaming
     command: python3 src/streaming/spark_streaming_job.py
     depends_on:
-      - kafka
-      - postgres
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
     environment:
       - POSTGRES_HOST=postgres
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
@@ -124,8 +135,10 @@ services:
     image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-setup:${DOCKER_TAG:-latest}
     container_name: otto-setup
     depends_on:
-      - kafka
-      - postgres
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
     environment:
       - POSTGRES_HOST=postgres
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092

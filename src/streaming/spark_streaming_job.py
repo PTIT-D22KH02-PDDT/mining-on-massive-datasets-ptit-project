@@ -306,8 +306,31 @@ def main():
 
                 batch_df.foreachPartition(upsert_advanced_funnel)
             
+            elif table_name == "anomaly_logs":
+                # Handle JSONB casting specifically for PostgreSQL
+                def upsert_anomalies(rows):
+                    import psycopg2
+                    import os
+                    conn = psycopg2.connect(
+                        host=os.getenv("POSTGRES_HOST", "localhost"), port=5432, dbname="otto_recommender", 
+                        user="otto", password="otto123"
+                    )
+                    with conn.cursor() as cur:
+                        for row in rows:
+                            cur.execute(
+                                """
+                                INSERT INTO anomaly_logs (session_id, anomaly_type, details, detected_at)
+                                VALUES (%s, %s, %s::jsonb, %s)
+                                """,
+                                (row['session_id'], row['anomaly_type'], row['details'], row['detected_at'])
+                            )
+                    conn.commit()
+                    conn.close()
+
+                batch_df.foreachPartition(upsert_anomalies)
+            
             else:
-                # Các bảng khác như anomaly_logs
+                # Default JDBC write for other tables
                 batch_df.write \
                     .jdbc(url=PG_URL, table=table_name, mode="append", properties=PG_PROPERTIES)
         
