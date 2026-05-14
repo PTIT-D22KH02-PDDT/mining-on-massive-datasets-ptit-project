@@ -4,6 +4,14 @@ Dự án đã được cấu hình hóa hoàn toàn bằng Docker Compose. Chỉ
 
 ---
 
+
+Tạo thư mục lưu dữ liệu Kafka
+
+```bash
+
+sudo chown -R 1000:1000 ./kafka_data
+```
+
 ## 1. Khởi động Toàn bộ Hệ thống
 
 Đảm bảo bạn đã cài đặt Docker và Docker Compose. Mở terminal tại thư mục gốc của dự án và chạy:

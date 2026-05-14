@@ -5,7 +5,7 @@ services:
     ports:
       - "29092:29092"
     volumes:
-      - "./kafka_data:/var/lib/kafka/data"
+      - ./kafka_data:/var/lib/kafka/data
     environment:
       - KAFKA_NODE_ID=0
       - KAFKA_PROCESS_ROLES=controller,broker
@@ -19,14 +19,16 @@ services:
       - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
       - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
       - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_LOG_DIRS=/var/lib/kafka/data
       - KAFKA_OPTS=-Djava.net.preferIPv4Stack=true
     networks:
       - spark-net
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
 
   kafka-ui:
