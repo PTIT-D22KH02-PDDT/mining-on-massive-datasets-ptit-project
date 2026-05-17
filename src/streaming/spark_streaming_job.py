@@ -191,38 +191,43 @@ def write_popular_items_from_rows(rows):
         conn.close()
 
 
+
+
+
 def write_stats_items_from_rows(rows):
-    """Bulk UPSERT for stats_items."""
+    """Bulk UPSERT for stats_items — item conversion metrics (Phase 5 Item Insights)."""
     if not rows:
         return
     conn = psycopg2.connect(host=PG_HOST, port=int(PG_PORT), dbname=PG_DB, user=PG_USER, password=PG_PASSWORD)
     try:
         values = []
         for r in rows:
-            click_to_cart = float(r['carts']) / float(r['clicks']) if r['clicks'] > 0 else 0.0
-            cart_to_order = float(r['orders']) / float(r['carts']) if r['carts'] > 0 else 0.0
-            click_to_order = float(r['orders']) / float(r['clicks']) if r['clicks'] > 0 else 0.0
             values.append((r['aid'], r['clicks'], r['carts'], r['orders'],
-                          click_to_cart, cart_to_order, click_to_order))
+                          float(r['click_to_cart_rate']), float(r['click_to_order_rate']), float(r['cart_to_order_rate'])))
         batch_size = 100
         with conn.cursor() as cur:
             for i in range(0, len(values), batch_size):
                 batch = values[i:i + batch_size]
-                args_str = ','.join(cur.mogrify("(%s, %s, %s, %s, %s, %s, %s, NOW())", row).decode() for row in batch)
+                args_str = ','.join(
+                    cur.mogrify("(%s, %s, %s, %s, %s, %s, %s)", row).decode()
+                    for row in batch
+                )
                 cur.execute(f"""
                     INSERT INTO stats_items (aid, total_clicks, total_carts, total_orders,
-                        click_to_cart_rate, cart_to_order_rate, click_to_order_rate, last_updated)
+                                           click_to_cart_rate, click_to_order_rate, cart_to_order_rate)
                     VALUES {args_str}
                     ON CONFLICT (aid) DO UPDATE SET
-                        total_clicks = EXCLUDED.total_clicks, total_carts = EXCLUDED.total_carts,
-                        total_orders = EXCLUDED.total_orders, click_to_cart_rate = EXCLUDED.click_to_cart_rate,
-                        cart_to_order_rate = EXCLUDED.cart_to_order_rate, click_to_order_rate = EXCLUDED.click_to_order_rate,
+                        total_clicks = EXCLUDED.total_clicks,
+                        total_carts = EXCLUDED.total_carts,
+                        total_orders = EXCLUDED.total_orders,
+                        click_to_cart_rate = EXCLUDED.click_to_cart_rate,
+                        click_to_order_rate = EXCLUDED.click_to_order_rate,
+                        cart_to_order_rate = EXCLUDED.cart_to_order_rate,
                         last_updated = NOW()
                 """)
-        conn.commit()
+        logger.info(f"stats_items: OK ({len(values)} rows)")
     except Exception as e:
-        print(f"Error write_stats_items: {e}")
-        conn.rollback()
+        logger.error(f"Error write_stats_items: {e}")
     finally:
         conn.close()
 
@@ -399,15 +404,23 @@ def unified_foreach_batch(batch_df, batch_id):
                 lit(0).alias("rank")
             )
 
-        # D: Real-time Item Performance (1-hour window)
+        # D: Item Conversion Metrics (stats_items) — Phase 5 new use case
+        # Tracks per-item conversion funnel: clicks → carts → orders
         items_df = batch_df \
-            .groupBy(window(col("timestamp"), "1 hour"), "aid") \
+            .groupBy("aid") \
             .agg(
                 count(when(col("type") == "clicks", 1)).alias("clicks"),
                 count(when(col("type") == "carts", 1)).alias("carts"),
                 count(when(col("type") == "orders", 1)).alias("orders")
             ) \
-            .select(col("aid"), col("clicks"), col("carts"), col("orders"))
+            .withColumn("click_to_cart_rate",
+                when(col("clicks") > 0, col("carts").cast("float") / col("clicks").cast("float")).otherwise(0.0)) \
+            .withColumn("click_to_order_rate",
+                when(col("clicks") > 0, col("orders").cast("float") / col("clicks").cast("float")).otherwise(0.0)) \
+            .withColumn("cart_to_order_rate",
+                when(col("carts") > 0, col("orders").cast("float") / col("carts").cast("float")).otherwise(0.0)) \
+            .select(col("aid"), col("clicks"), col("carts"), col("orders"),
+                    col("click_to_cart_rate"), col("click_to_order_rate"), col("cart_to_order_rate"))
 
         # E: Model Performance (Advanced Funnel)
         model_df = batch_df \

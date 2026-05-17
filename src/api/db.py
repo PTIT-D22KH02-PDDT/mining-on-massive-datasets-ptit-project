@@ -335,6 +335,79 @@ class Database:
             logger.error(f"Failed to get hit rate stats: {e}")
             return {"total_actions": 0, "total_hits": 0, "hit_rate": 0}
 
+    def log_online_metrics(self, session_id: int, model_used: str, event_type: str, metrics: Dict[str, float]):
+        """Log per-session evaluation metrics (Recall@K, NDCG@K, MRR@K)."""
+        try:
+            with self.cursor() as cur:
+                for metric_name, value in metrics.items():
+                    cur.execute(
+                        """INSERT INTO online_metrics
+                           (session_id, model_used, event_type, metric_name, metric_value)
+                           VALUES (%s, %s, %s, %s, %s)""",
+                        (session_id, model_used, event_type, metric_name, value)
+                    )
+        except Exception as e:
+            logger.error(f"Failed to log online metrics: {e}")
+
+    def get_online_metrics_trend(self, metric_name: str = "recall@20", limit: int = 100) -> List[Dict]:
+        """Get metric trend over time, grouped by model."""
+        try:
+            with self.cursor() as cur:
+                cur.execute("""
+                    SELECT model_used, event_type,
+                           AVG(metric_value) as avg_value,
+                           COUNT(*) as count,
+                           MAX(created_at) as latest_at
+                    FROM online_metrics
+                    WHERE metric_name = %s
+                    GROUP BY model_used, event_type
+                    ORDER BY avg_value DESC
+                    LIMIT %s
+                """, (metric_name, limit))
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get online metrics trend: {e}")
+            return []
+
+    def get_all_online_metrics_summary(self, limit: int = 50) -> List[Dict]:
+        """Get all metric values grouped by model and metric_name."""
+        try:
+            with self.cursor() as cur:
+                cur.execute("""
+                    SELECT model_used, metric_name, event_type,
+                           AVG(metric_value) as avg_value,
+                           COUNT(*) as count
+                    FROM online_metrics
+                    GROUP BY model_used, metric_name, event_type
+                    ORDER BY metric_name, avg_value DESC
+                    LIMIT %s
+                """, (limit,))
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get online metrics summary: {e}")
+            return []
+
+    def get_item_insights(self, limit: int = 100) -> List[Dict]:
+        """
+        Get item conversion metrics (stats_items) for Item Insights dashboard.
+        Tracks per-item conversion funnel: clicks -> carts -> orders.
+        Used for popularity bias mitigation and hidden gem discovery.
+        """
+        try:
+            with self.cursor() as cur:
+                cur.execute("""
+                    SELECT aid, total_clicks, total_carts, total_orders,
+                           click_to_cart_rate, click_to_order_rate, cart_to_order_rate,
+                           last_updated
+                    FROM stats_items
+                    ORDER BY total_clicks DESC
+                    LIMIT %s
+                """, (limit,))
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get item insights: {e}")
+            return []
+
     def close(self):
         if self._conn:
             self._conn.close()

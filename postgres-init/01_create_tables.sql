@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS stats_items (
     cart_to_order_rate FLOAT DEFAULT 0,
     last_updated TIMESTAMP DEFAULT NOW()
 );
+-- REMOVED: evaluation_results table — written by deleted offline_evaluator.py (Phase 5 cleanup)
 
 CREATE TABLE IF NOT EXISTS stats_sessions (
     session_type VARCHAR(255) PRIMARY KEY,
@@ -99,8 +100,7 @@ CREATE TABLE IF NOT EXISTS collected_events (
 );
 
 
--- 3. EVALUATION TABLES (Offline & Online)
---------------------------------------------------------------------------------
+-- 3. EVALUATION TABLES (Online — Phase 5.1)
 -- API Online Hit Rate tracking
 CREATE TABLE IF NOT EXISTS online_hits (
     id SERIAL PRIMARY KEY,
@@ -111,31 +111,19 @@ CREATE TABLE IF NOT EXISTS online_hits (
     timestamp TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Offline Metric Results
-CREATE TABLE IF NOT EXISTS evaluation_results (
+-- Phase 5.1: Per-session evaluation metrics (Recall@K, NDCG@K, MRR@K)
+CREATE TABLE IF NOT EXISTS online_metrics (
     id SERIAL PRIMARY KEY,
-    session TEXT,
-    ts TIMESTAMPTZ,
-    hit BOOLEAN,
-    latency_ms DOUBLE PRECISION,
-    metric_name TEXT,
-    metric_value DOUBLE PRECISION,
-    predicted_items INT[],
-    actual_aid INT,
+    session_id BIGINT NOT NULL,
+    model_used VARCHAR(255) NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
+    metric_name VARCHAR(50) NOT NULL,
+    metric_value DOUBLE PRECISION NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Kafka-based Online Evaluation
-CREATE TABLE IF NOT EXISTS online_evaluation (
-    id SERIAL PRIMARY KEY,
-    session TEXT NOT NULL,
-    ts TIMESTAMPTZ NOT NULL,
-    hit BOOLEAN,
-    latency_ms DOUBLE PRECISION,
-    predicted_items INT[],
-    actual_aid INT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- offline_evaluator.py stores here via save_results_to_db() (optional, use --save-db flag)
+-- REMOVED: evaluation_results and online_evaluation tables — not used (Phase 5.3 cleanup)
 
 
 -- 4. MONITORING TABLES (Health & Anomalies)
@@ -168,6 +156,6 @@ CREATE INDEX IF NOT EXISTS idx_collected_events_session ON collected_events(sess
 CREATE INDEX IF NOT EXISTS idx_predictions_log_session ON predictions_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_anomaly_logs_session ON anomaly_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_spark_metrics_timestamp ON spark_metrics(timestamp);
-CREATE INDEX IF NOT EXISTS idx_eval_session ON evaluation_results(session);
-CREATE INDEX IF NOT EXISTS idx_eval_metric ON evaluation_results(metric_name);
 CREATE INDEX IF NOT EXISTS idx_popular_items_composite ON popular_items(event_type, time_scope, count DESC);
+CREATE INDEX IF NOT EXISTS idx_online_metrics_model ON online_metrics(model_used);
+CREATE INDEX IF NOT EXISTS idx_online_metrics_name ON online_metrics(metric_name);

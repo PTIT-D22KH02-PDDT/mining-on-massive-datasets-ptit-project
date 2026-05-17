@@ -46,7 +46,9 @@ view = st.sidebar.radio("Go to", [
     "Advanced Analytics", 
     "Anomaly Detection", 
     "Recommendation Demo", 
-    "Spark Performance"
+    "Spark Performance",
+    "Model Evaluation",
+    "Item Insights"
 ])
 
 st.sidebar.markdown("---")
@@ -335,6 +337,166 @@ elif view == "Spark Performance":
                         use_container_width=True)
         else:
             st.info("Waiting for Spark performance data...")
+
+# --- View: Model Evaluation ---
+elif view == "Model Evaluation":
+    st.subheader("Model Quality Metrics")
+    if stats:
+        online_metrics_summary = stats.get("online_metrics_summary", [])
+        online_metrics_trend = stats.get("online_metrics_trend", [])
+
+        if online_metrics_summary:
+            df_metrics = pd.DataFrame(online_metrics_summary)
+
+            st.markdown("**Recall@20 by Recommendation Strategy**")
+            recall_df = df_metrics[df_metrics['metric_name'] == 'recall@20']
+            if not recall_df.empty:
+                fig = px.bar(
+                    recall_df, x='model_used', y='avg_value', color='model_used',
+                    template="plotly_dark", labels={'avg_value': 'Recall@20', 'model_used': 'Model'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No Recall@20 data available yet.")
+
+            st.markdown("**NDCG@20 by Model and Event Type**")
+            ndcg_df = df_metrics[df_metrics['metric_name'] == 'ndcg@20']
+            if not ndcg_df.empty:
+                fig = px.bar(
+                    ndcg_df, x='model_used', y='avg_value', color='event_type',
+                    barmode='group', template="plotly_dark", labels={'avg_value': 'NDCG@20'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("**MRR@20 by Model**")
+            mrr_df = df_metrics[df_metrics['metric_name'] == 'mrr@20']
+            if not mrr_df.empty:
+                fig = px.bar(
+                    mrr_df, x='model_used', y='avg_value', color='model_used',
+                    template="plotly_dark", labels={'avg_value': 'MRR@20'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("**Overall Metrics Summary**")
+            st.dataframe(df_metrics, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("**Overall Weighted Recall@20**")
+            wr_df = df_metrics[df_metrics['metric_name'] == 'weighted_recall@20']
+            if not wr_df.empty:
+                avg_wr = wr_df['avg_value'].mean() * 100
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=avg_wr,
+                    title={'text': "Weighted Recall@20 (%)"},
+                    gauge={
+                        'axis': {'range': [0, 100]},
+                        'bar': {'color': "darkblue"},
+                        'steps': [
+                            {'range': [0, 5], 'color': "red"},
+                            {'range': [5, 15], 'color': "yellow"},
+                            {'range': [15, 100], 'color': "green"}
+                        ]
+                    }
+                )).update_layout(template="plotly_dark", height=300)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No Weighted Recall@20 data available yet.")
+        else:
+            st.info("No online evaluation metrics available yet. Start sending cart/order events to see model quality metrics.")
+
+        if online_metrics_trend:
+            st.markdown("---")
+            st.markdown("**Recall@20 Trend by Model**")
+            df_trend = pd.DataFrame(online_metrics_trend)
+            if not df_trend.empty and 'latest_at' in df_trend.columns:
+                df_trend['latest_at'] = pd.to_datetime(df_trend['latest_at'])
+                fig = px.line(
+                    df_trend, x='latest_at', y='avg_value', color='model_used',
+                    template="plotly_dark", markers=True,
+                    labels={'avg_value': 'Recall@20', 'model_used': 'Model'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Cannot fetch stats from API. Ensure FastAPI is running.")
+
+# --- View: Item Insights ---
+elif view == "Item Insights":
+    st.subheader("Item Conversion Insights")
+    if stats:
+        item_insights = stats.get("item_insights", [])
+        if item_insights:
+            df_items = pd.DataFrame(item_insights)
+            df_items['aid'] = df_items['aid'].astype(str)
+
+            MIN_CLICKS = st.slider("Minimum clicks to include", min_value=0, max_value=100, value=10)
+            df_filtered = df_items[df_items['total_clicks'] >= MIN_CLICKS]
+
+            st.markdown("**Hidden Gems — High Conversion, Low Visibility**")
+            st.caption("Items với conversion rate cao nhưng ít click — ứng viên để boost recommendation")
+            if not df_filtered.empty:
+                fig_scatter = px.scatter(
+                    df_filtered, x='total_clicks', y='click_to_order_rate',
+                    size='total_orders', color='click_to_order_rate',
+                    hover_data=['aid'], template="plotly_dark",
+                    labels={'total_clicks': 'Total Clicks', 'click_to_order_rate': 'Click-to-Order Rate'},
+                    color_continuous_scale='Viridis'
+                )
+                fig_scatter.add_hline(
+                    y=df_filtered['click_to_order_rate'].quantile(0.75),
+                    line_dash="dash", line_color="yellow",
+                    annotation_text="Top 25% Conversion"
+                )
+                fig_scatter.add_vline(
+                    x=df_filtered['total_clicks'].quantile(0.25),
+                    line_dash="dash", line_color="red",
+                    annotation_text="Bottom 25% Clicks"
+                )
+                st.plotly_chart(fig_scatter, use_container_width=True)
+
+                hidden_gems = df_filtered[
+                    (df_filtered['click_to_order_rate'] >= df_filtered['click_to_order_rate'].quantile(0.75)) &
+                    (df_filtered['total_clicks'] <= df_filtered['total_clicks'].quantile(0.25))
+                ]
+                if not hidden_gems.empty:
+                    st.success(f"Found {len(hidden_gems)} hidden gems")
+                    st.dataframe(hidden_gems[['aid', 'total_clicks', 'total_orders', 'click_to_order_rate']].head(10), use_container_width=True)
+            else:
+                st.info(f"No items with >= {MIN_CLICKS} clicks.")
+
+            st.markdown("---")
+            st.markdown("**Top 20 Items by Click-to-Order Rate**")
+            if not df_filtered.empty:
+                top_conv = df_filtered.nlargest(20, 'click_to_order_rate')
+                fig_bar = px.bar(
+                    top_conv, x='aid', y='click_to_order_rate', color='total_orders',
+                    template="plotly_dark", labels={'click_to_order_rate': 'Click-to-Order Rate', 'aid': 'Item ID'},
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("No data available.")
+
+            st.markdown("---")
+            st.markdown("**Popularity vs Conversion — Bubble Chart**")
+            st.caption("Bubble size = total orders. Cho thấy mối quan hệ giữa popularity và actual conversion")
+            if not df_filtered.empty:
+                fig_bubble = px.scatter(
+                    df_filtered, x='total_clicks', y='click_to_cart_rate',
+                    size='total_orders', color='total_carts',
+                    hover_data=['aid'], template="plotly_dark",
+                    labels={'total_clicks': 'Total Clicks', 'click_to_cart_rate': 'Click-to-Cart Rate'},
+                    color_continuous_scale='Plasma'
+                )
+                fig_bubble.update_layout(yaxis_tickformat='.0%')
+                st.plotly_chart(fig_bubble, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("**All Item Metrics**")
+            st.dataframe(df_filtered.sort_values('total_clicks', ascending=False).head(50), use_container_width=True)
+        else:
+            st.info("No item insights data yet. Run the Spark streaming pipeline to populate stats_items.")
+    else:
+        st.warning("Cannot fetch stats from API. Ensure FastAPI is running.")
 
 st.markdown("---")
 st.caption("OTTO Recommender Hub - Unified Monitoring & Control")

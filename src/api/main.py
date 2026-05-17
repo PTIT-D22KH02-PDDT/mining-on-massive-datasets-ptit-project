@@ -34,6 +34,7 @@ from src.api.db import Database
 from src.api.cold_start import ColdStartRecommender
 from src.serving.covisitation_recommender import CovisitationRecommender
 from src.serving.sasrec_recommender import SASRecRecommender
+from src.evaluation.metrics import recall_at_k, ndcg_at_k, mrr_at_k
 
 # --- JSON Logging Setup (Phase 2.2) ---
 class UUIDFormatter(logging.Formatter):
@@ -211,6 +212,25 @@ async def flush_db_buffers_task():
                 if hits:
                     db.log_online_hits_batch(hits)
                     logger.info(f"Flushed {len(hits)} buffered online_hits to PostgreSQL")
+
+            # Flush online_metrics (5.1)
+            while True:
+                batch = session_mgr.redis.lpop("buffer:online_metrics", BATCH_SIZE)
+                if not batch:
+                    break
+                if isinstance(batch, str):
+                    batch = [batch]
+                for item in batch:
+                    try:
+                        metric_data = json.loads(item)
+                        db.log_online_metrics(
+                            session_id=metric_data['session_id'],
+                            model_used=metric_data['model_used'],
+                            event_type=metric_data['event_type'],
+                            metrics=metric_data['metrics'],
+                        )
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning(f"Failed to parse buffered online_metrics: {e}")
 
         except Exception as e:
             logger.error(f"Error flushing DB buffers: {e}")
@@ -410,6 +430,22 @@ async def receive_event(event: EventRequest, request: Request, background_tasks:
             "session_id": event.session_id, "aid": event.aid, "event_type": event.type, "is_hit": is_hit
         }))
 
+        # 5.1: Calculate and log Recall@K, NDCG@K, MRR@K
+        ground_truth = [event.aid]
+        all_recs_list = recommendations.get("clicks", []) + recommendations.get("carts", []) + recommendations.get("orders", [])
+        eval_metrics = {
+            "recall@20": recall_at_k(all_recs_list, ground_truth, k=20),
+            "ndcg@20": ndcg_at_k(all_recs_list, ground_truth, k=20),
+            "mrr@20": mrr_at_k(all_recs_list, ground_truth, k=20),
+            "hit_rate": 1.0 if is_hit else 0.0,
+        }
+        session_mgr.redis.rpush("buffer:online_metrics", json.dumps({
+            "session_id": event.session_id,
+            "model_used": model_used,
+            "event_type": event.type,
+            "metrics": eval_metrics,
+        }))
+
     logger.info(f"[{corr_id}] Response: model={model_used} latency={latency_ms:.1f}ms")
 
     return EventResponse(
@@ -476,6 +512,9 @@ async def get_stats():
         "anomaly_logs": db.get_anomalies(limit=50) if db else [],
         "hit_rate_stats": db.get_hit_rate_stats() if db else {},
         "advanced_funnel": db.get_advanced_funnel_stats() if db else [],
+        "online_metrics_summary": db.get_all_online_metrics_summary() if db else [],
+        "online_metrics_trend": db.get_online_metrics_trend() if db else [],
+        "item_insights": db.get_item_insights() if db else [],
     }
 
 

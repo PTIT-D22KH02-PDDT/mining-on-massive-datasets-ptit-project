@@ -751,13 +751,13 @@ dependencies = [
 | 2.2 Structured logging | Trung bình | Thấp | Trung bình | Done |
 | 2.3 Batch DB writes | Cao | Trung bình | Cao | Done |
 | 2.4 Health check chi tiết | Thấp | Thấp | Thấp | Done |
-| 3.1 Z-score anomaly | Trung bình (chính xác hơn) | Trung bình | Trung bình | Pending |
-| 4.1 Auto-refresh | Thấp (UX tốt hơn) | Thấp | Thấp | Pending |
-| 4.2 Spark charts | Thấp (demo đẹp hơn) | Thấp | Thấp | Pending |
-| 5.1 Online evaluation metrics | Cao (track model quality real-time) | Thấp | Cao | Pending |
-| 5.2 Offline evaluation script | Cao (baseline cho model comparison) | Trung bình | Cao | Pending |
-| 5.3 Cleanup dead code | Trung bình (codebase sạch hơn) | Thấp | Trung bình | Pending |
-| 5.4 Dashboard evaluation tab | Trung bình (demo ấn tượng hơn) | Thấp | Trung bình | Pending |
+| 3.1 Z-score anomaly | Trung bình (chính xác hơn) | Trung bình | Trung bình | Done |
+| 4.1 Auto-refresh | Thấp (UX tốt hơn) | Thấp | Thấp | Done |
+| 4.2 Spark charts | Thấp (demo đẹp hơn) | Thấp | Thấp | Done |
+| 5.1 Online evaluation metrics | Cao (track model quality real-time) | Thấp | Cao | Done |
+| 5.2 Offline evaluation script | Cao (baseline cho model comparison) | Trung bình | Cao | Done |
+| 5.3 Cleanup dead code | Trung bình (codebase sạch hơn) | Thấp | Trung bình | Done |
+| 5.4 Dashboard evaluation tab | Trung bình (demo ấn tượng hơn) | Thấp | Trung bình | Done |
 
 ---
 
