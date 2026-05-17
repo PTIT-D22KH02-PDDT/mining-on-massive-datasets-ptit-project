@@ -4,12 +4,15 @@ import requests
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(
     page_title="OTTO Recommender Pipeline Dashboard",
     page_icon=None,
     layout="wide",
 )
+
+st_autorefresh(interval=5000, key="monitoring_refresh")
 
 import os
 API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
@@ -292,15 +295,44 @@ elif view == "Spark Performance":
         if spark:
             df_spark = pd.DataFrame(spark)
             df_spark['timestamp'] = pd.to_datetime(df_spark['timestamp'])
-            
-            st.markdown("**Processing vs Input Rate (rows/sec)**")
-            # Sửa lại process_rows_per_second cho chuẩn schema DB
-            st.plotly_chart(px.line(df_spark, x='timestamp', y=['input_rows_per_second', 'process_rows_per_second'], template="plotly_dark"), use_container_width=True)
-            
+            df_spark = df_spark.sort_values('timestamp')
+
+            # 1. Input vs Processing Rate (line chart)
+            st.markdown("**Input vs Processing Rate (rows/sec)**")
+            fig_rate = px.line(df_spark, x='timestamp',
+                              y=['input_rows_per_second', 'process_rows_per_second'],
+                              template="plotly_dark", markers=True,
+                              labels={'input_rows_per_second': 'Input (rows/s)',
+                                      'process_rows_per_second': 'Process (rows/s)'})
+            st.plotly_chart(fig_rate, use_container_width=True)
+
+            # 2. Throughput Efficiency Ratio (process/input)
+            df_spark['throughput_ratio'] = (
+                df_spark['process_rows_per_second'] / df_spark['input_rows_per_second'].replace(0, float('nan'))
+            )
+            st.markdown("**Processing Efficiency Ratio (process/input)**")
+            fig_eff = px.area(df_spark, x='timestamp', y='throughput_ratio',
+                            template="plotly_dark", color_discrete_sequence=['#00CC96'])
+            fig_eff.update_layout(height=300)
+            st.plotly_chart(fig_eff, use_container_width=True)
+
+            # 3. Batch Duration (area chart + alert)
             st.markdown("**Batch Duration (ms)**")
-            # My area chart for duration is visually better for time series
-            fig_dur = px.area(df_spark, x='timestamp', y='batch_duration_ms', template="plotly_dark", color_discrete_sequence=['#FFA15A'])
+            ALERT_THRESHOLD_MS = 10000
+            slow_batches = df_spark[df_spark['batch_duration_ms'] > ALERT_THRESHOLD_MS]
+            if not slow_batches.empty:
+                st.warning(f"⚠️ {len(slow_batches)} batches exceeded {ALERT_THRESHOLD_MS}ms threshold")
+            fig_dur = px.area(df_spark, x='timestamp', y='batch_duration_ms',
+                            template="plotly_dark", color_discrete_sequence=['#FFA15A'])
             st.plotly_chart(fig_dur, use_container_width=True)
+
+            # 4. Recent Metrics Table
+            st.markdown("**Recent Batch Metrics**")
+            display_cols = ['timestamp', 'batch_id', 'input_rows_per_second',
+                          'process_rows_per_second', 'batch_duration_ms']
+            available = [c for c in display_cols if c in df_spark.columns]
+            st.dataframe(df_spark[available].tail(10).sort_values('timestamp', ascending=False),
+                        use_container_width=True)
         else:
             st.info("Waiting for Spark performance data...")
 

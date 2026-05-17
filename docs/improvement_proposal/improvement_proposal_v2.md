@@ -266,7 +266,7 @@ async def health_check():
 
 ---
 
-## Phase 3: Anomaly Detection — Statistical Z-Score
+## Phase 3: Anomaly Detection — Statistical Z-Score (DONE)
 
 ### 3.1 Thay Hard Threshold Bằng Statistical Detection
 
@@ -275,33 +275,110 @@ async def health_check():
 **Vấn đề:**
 - Anomaly detection dùng hard threshold: `count > 50` events/phút
 - Không adapt theo pattern traffic (giờ cao điểm vs thấp điểm)
-- Nhiều false positive hoặc false negative
-
-**Cách cải thiện:**
-```python
-# TRƯỚC: hard threshold
-.filter("count > 50")
-
-# SAU: Z-score detection trong sliding window
-# Tính mean và std của event rate per session
-# Flag nếu rate > mean + 3*std
-anomalies_df = events_df \
-    .groupBy(window(col("timestamp"), "5 minutes"), "session_id") \
-    .count() \
-    .withColumn("mean_rate", avg("count").over(window_spec)) \
-    .withColumn("std_rate", stddev("count").over(window_spec)) \
-    .withColumn("z_score", (col("count") - col("mean_rate")) / col("std_rate")) \
-    .filter(col("z_score") > 3.0)
-```
-
-**Tác động:**
-- Ít false positive hơn
-- Tự động adapt theo traffic pattern
-- Phát hiện anomaly chính xác hơn
+- Nhiều false positive (giờ cao điểm) hoặc false negative (giờ thấp điểm)
 
 ---
 
-## Phase 4: Dashboard Polish
+### Giải thích query
+
+**Z-score formula:**
+
+```
+z_score = (count - mean) / std
+```
+
+Một session được coi là anomaly nếu `z_score > 3.0`, tức event count của nó lớn hơn **3 standard deviations** so với trung bình của batch hiện tại.
+
+**Tại sao không dùng Window function trong Spark?**
+
+Đề xuất ban đầu dùng `avg().over()` và `stddev().over()` trong Spark, nhưng approach đó không phù hợp cho streaming micro-batch vì:
+
+- Window function tính stats **per partition**, không phải toàn batch
+- Spark streaming không đảm bảo ordering/tracking qua các batches
+- Harder to debug và adjust threshold
+
+**Implementation thực tế:**
+
+```python
+# 1. Đếm events per session trong batch
+session_counts_df = batch_df \
+    .groupBy(window(col("timestamp"), "1 minute"), "session_id") \
+    .count()
+
+# 2. Tính batch-level statistics (mean và std)
+batch_stats = session_counts_df.select(
+    spark_avg("count").alias("mean_count"),
+    spark_stddev("count").alias("std_count")
+).collect()
+
+# 3. Tính threshold = mean + 3 * std
+threshold = mean_count + Z_SCORE_THRESHOLD * std_count
+
+# 4. Flag sessions vượt threshold
+anomalies_df = session_counts_df.filter(col("count") > threshold)
+```
+
+**Chi tiết từng step:**
+
+| Step | Operation | Purpose |
+|------|-----------|---------|
+| 1 | `groupBy("session_id").count()` | Đếm tổng events mỗi session trong batch |
+| 2 | `spark_avg("count")` | Tính trung bình events/session của batch |
+| 2 | `spark_stddev("count")` | Tính độ lệch chuẩn của batch |
+| 3 | `threshold = mean + 3 * std` | Ngưỡng động — thay đổi theo traffic |
+| 4 | `filter(count > threshold)` | Chỉ flag những session bất thường thực sự |
+
+**Tại sao collect() được chấp nhận?**
+
+`batch_stats.select(spark_avg, spark_stddev).collect()` trả về **1 row** (aggregated stats), không phải raw data. Với micro-batch thường có hàng trăm đến hàng nghìn sessions, collect 1 row là an toàn — không có OOM risk.
+
+**Fallback behavior:**
+
+```python
+if session_count < MIN_SESSIONS_FOR_ZSCORE (10):
+    # Không đủ data để compute meaningful stats → skip
+    anomalies_df = empty_dataframe
+```
+
+Khi batch quá nhỏ, Z-score không đáng tin cậy (ví dụ: 5 sessions với stddev gần bằng 0). Thay vì false positive, ta skip detection.
+
+**Enhanced details field:**
+
+Thay vì chỉ lưu `count`, details giờ bao gồm context để debug:
+
+```python
+to_json(struct(
+    col("count").alias("event_count_per_min"),
+    lit(mean_count).alias("batch_mean"),
+    lit(std_count).alias("batch_std"),
+    lit(threshold).alias("z_threshold")
+)).alias("details")
+```
+
+Khi query anomaly logs, ta có thể thấy:
+- Session A: count=80, batch_mean=15, batch_std=10, threshold=45.0
+- Session B: count=45, batch_mean=40, batch_std=2, threshold=46.0
+
+→ Session B không bị flag dù count=45 gần bằng threshold vì batch đó có traffic cao đều.
+
+**So sánh:**
+
+| | Hard Threshold | Z-Score |
+|--|--|--|
+| Threshold | Cố định (50) | Động (mean + 3*std) |
+| Cao điểm | False positive | OK |
+| Thấp điểm | False negative | OK |
+| Adaptation | Không | Tự động |
+| Min sessions | 0 | 10 |
+
+**Tác động:**
+- Ít false positive hơn trong giờ cao điểm
+- Phát hiện anomaly chính xác hơn khi traffic biến đổi
+- Có thể debug dễ dàng với batch_mean/std được lưu kèm
+
+---
+
+## Phase 4: Dashboard Polish (DONE)
 
 ### 4.1 Auto-Refresh Monitoring Page
 
@@ -312,15 +389,22 @@ anomalies_df = events_df \
 - Không thể hiện real-time nature của hệ thống
 
 **Cách cải thiện:**
+
+Thêm `streamlit-autorefresh` package và gọi `st_autorefresh` sau `st.set_page_config`:
+
 ```python
 from streamlit_autorefresh import st_autorefresh
-st_autorefresh(interval=5000, key="monitoring_refresh")
+
+st.set_page_config(page_title="OTTO Recommender Pipeline Dashboard", layout="wide")
+st_autorefresh(interval=5000, key="monitoring_refresh")  # Auto-refresh every 5 seconds
 ```
 
 **Tác động:**
 - Dashboard tự cập nhật mỗi 5 giây
 - Thể hiện real-time nature của hệ thống
-- Demo ấn tượng hơn
+- Không cần manual reload để xem dữ liệu mới
+
+---
 
 ### 4.2 Thêm Chart Spark Streaming Performance
 
@@ -328,17 +412,42 @@ st_autorefresh(interval=5000, key="monitoring_refresh")
 
 **Vấn đề:**
 - Dashboard có tab "Spark Performance" nhưng chart cơ bản
-- Thiếu visualization cho input vs process rate, batch duration trends
+- Thiếu visualization cho input vs process rate, throughput efficiency, batch duration alerts
 
 **Cách cải thiện:**
-- Thêm line chart: input_rows_per_second vs process_rows_per_second
-- Thêm area chart: batch_duration_ms over time
-- Thêm alert nếu batch_duration > threshold
+
+Thêm 4 visualization components trong tab "Spark Performance":
+
+| Chart | Type | Purpose |
+|-------|------|---------|
+| Input vs Process Rate | Line chart với markers | So sánh tốc độ đọc Kafka và xử lý Spark |
+| Processing Efficiency Ratio | Area chart | Tỷ lệ process/input — cho biết Spark có xử lý kịp không |
+| Batch Duration | Area chart + alert | Thời gian mỗi batch + cảnh báo nếu > 10s |
+| Recent Metrics Table | Dataframe | Xem chi tiết 10 batches gần nhất |
+
+**Batch Duration Alert:**
+
+```python
+ALERT_THRESHOLD_MS = 10000  # 10 seconds
+slow_batches = df_spark[df_spark['batch_duration_ms'] > ALERT_THRESHOLD_MS]
+if not slow_batches.empty:
+    st.warning(f"⚠️ {len(slow_batches)} batches exceeded {ALERT_THRESHOLD_MS}ms threshold")
+```
+
+**Throughput Efficiency Formula:**
+
+```
+throughput_ratio = process_rows_per_second / input_rows_per_second
+```
+
+- `ratio > 1.0`: Spark xử lý nhanh hơn input (healthy)
+- `ratio < 1.0`: Kafka input vượt xử lý → lag tích lũy
+- `ratio ≈ 0`: Spark đang bottleneck
 
 **Tác động:**
 - Dashboard thể hiện rõ big data processing capability
 - Dễ debug performance issues
-- Demo ấn tượng hơn
+- Demo ấn tượng hơn với real-time visualizations
 
 ---
 

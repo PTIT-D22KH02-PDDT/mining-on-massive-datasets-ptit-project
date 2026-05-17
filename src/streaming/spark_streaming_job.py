@@ -17,7 +17,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, window, count, when, lit, struct, to_json, approx_count_distinct, min as spark_min, max as spark_max, sum as spark_sum
+from pyspark.sql.functions import from_json, col, window, count, when, lit, struct, to_json, approx_count_distinct, min as spark_min, max as spark_max, sum as spark_sum, current_timestamp
+from pyspark.sql.functions import avg as spark_avg, stddev as spark_stddev
 from pyspark.sql.types import StructType, StructField, LongType, StringType, TimestampType
 from pyspark.sql.streaming import StreamingQueryListener
 
@@ -345,18 +346,46 @@ def unified_foreach_batch(batch_df, batch_id):
             .withColumn("cart_to_order_rate",
                 when(col("total_carts") > 0, col("total_orders").cast("double") / col("total_carts").cast("double")).otherwise(0.0))
 
-        # B: Anomaly Detection (Bot traffic > 50 events/min per session)
-        anomalies_df = batch_df \
+        # B: Anomaly Detection (Z-score based — Phase 3.1)
+        # Replaces hard threshold (count > 50) with statistical detection
+        # Flag sessions where event count > mean + 3*std of batch distribution
+        Z_SCORE_THRESHOLD = 3.0
+        MIN_SESSIONS_FOR_ZSCORE = 10
+
+        session_counts_df = batch_df \
             .groupBy(window(col("timestamp"), "1 minute"), "session_id") \
-            .count() \
-            .filter("count > 50") \
-            .dropDuplicates(["session_id"]) \
-            .select(
-                col("session_id"),
-                lit("BOT_TRAFFIC").alias("anomaly_type"),
-                to_json(struct(col("count").alias("event_count_per_min"))).alias("details"),
-                col("window.start").alias("detected_at")
-            )
+            .count()
+
+        batch_stats = session_counts_df.select(
+            spark_avg("count").alias("mean_count"),
+            spark_stddev("count").alias("std_count")
+        ).collect()
+
+        if batch_stats and batch_stats[0]["std_count"]:
+            mean_count = batch_stats[0]["mean_count"]
+            std_count = batch_stats[0]["std_count"]
+            session_count = session_counts_df.count()
+
+            if session_count >= MIN_SESSIONS_FOR_ZSCORE and std_count and std_count > 0:
+                threshold = mean_count + Z_SCORE_THRESHOLD * std_count
+                anomalies_df = session_counts_df \
+                    .filter(col("count") > threshold) \
+                    .dropDuplicates(["session_id"]) \
+                    .select(
+                        col("session_id"),
+                        lit("BOT_TRAFFIC").alias("anomaly_type"),
+                        to_json(struct(
+                            col("count").alias("event_count_per_min"),
+                            lit(round(mean_count, 2)).alias("batch_mean"),
+                            lit(round(std_count, 2)).alias("batch_std"),
+                            lit(round(threshold, 2)).alias("z_threshold")
+                        )).alias("details"),
+                        current_timestamp().alias("detected_at")
+                    )
+            else:
+                anomalies_df = session_counts_df.select(lit(None).alias("session_id")).filter("session_id IS NULL")
+        else:
+            anomalies_df = session_counts_df.select(lit(None).alias("session_id")).filter("session_id IS NULL")
 
         # C: Real-time Popularity (all-time per type & aid)
         popular_df = batch_df \

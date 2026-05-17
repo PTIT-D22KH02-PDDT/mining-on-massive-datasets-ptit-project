@@ -47,6 +47,7 @@ dashboard = [
     "plotly>=6.7.0",
     "requests>=2.32.0",
     "python-dotenv==1.1.1",
+    "streamlit-autorefresh>=0.3.0",
 ]
 
 [tool.uv]
