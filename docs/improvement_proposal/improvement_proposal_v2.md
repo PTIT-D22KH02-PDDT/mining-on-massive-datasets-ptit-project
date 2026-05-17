@@ -12,7 +12,7 @@ Hệ thống hiện tại đã fix toàn bộ 7 bugs từ `bug_report_v1.md`. Co
 
 ---
 
-## Phase 1: Spark Streaming — Merge Streams + Parallel Writes ✅ IMPLEMENTED
+## Phase 1: Spark Streaming — Merge Streams + Parallel Writes (DONE)
 
 ### 1.1 Gộp 6 Streams → 1 foreachBatch + Parallel Writes
 
@@ -132,7 +132,7 @@ def unified_foreach_batch(batch_df, batch_id):
 
 ---
 
-## Phase 2: API Reliability — Circuit Breaker + Structured Logging
+## Phase 2: API Reliability — Circuit Breaker + Structured Logging (DONE)
 
 ### 2.1 Circuit Breaker Cho SASRec Remote Call
 
@@ -634,14 +634,14 @@ dependencies = [
 
 | Phase | Impact | Effort | Priority | Status |
 |-------|--------|--------|----------|--------|
-| 1.1 Merge 6 streams + parallel writes | Cao (giảm 83% Kafka reads, 6x faster writes) | Trung bình | Cao nhất | ✅ Done |
-| 1.2 Bulk INSERT/UPSERT | Cao (giảm network round-trips 100x) | Thấp | Cao | ✅ Done |
-| 1.3 Stats sessions optimization | Trung bình (tránh driver OOM) | Thấp | Trung bình | ✅ Done |
-| 1.4 Checkpoint cleanup | Trung bình (tránh disk full) | Thấp | Trung bình | ✅ Done |
-| 2.1 Circuit breaker | Cao (tránh cascade failure) | Thấp | Cao | Pending |
-| 2.2 Structured logging | Trung bình (debug dễ hơn) | Thấp | Trung bình | Pending |
-| 2.3 Batch DB writes | Cao (giảm DB pressure) | Trung bình | Cao | Pending |
-| 2.4 Health check chi tiết | Thấp (monitoring tốt hơn) | Thấp | Thấp | Pending |
+| 1.1 Merge 6 streams + parallel writes | Cao | Trung bình | Cao nhất | Done |
+| 1.2 Bulk INSERT/UPSERT | Cao | Thấp | Cao | Done |
+| 1.3 Stats sessions optimization | Trung bình | Thấp | Trung bình | Done |
+| 1.4 Checkpoint cleanup | Trung bình | Thấp | Trung bình | Done |
+| 2.1 Circuit breaker | Cao | Thấp | Cao | Done |
+| 2.2 Structured logging | Trung bình | Thấp | Trung bình | Done |
+| 2.3 Batch DB writes | Cao | Trung bình | Cao | Done |
+| 2.4 Health check chi tiết | Thấp | Thấp | Thấp | Done |
 | 3.1 Z-score anomaly | Trung bình (chính xác hơn) | Trung bình | Trung bình | Pending |
 | 4.1 Auto-refresh | Thấp (UX tốt hơn) | Thấp | Thấp | Pending |
 | 4.2 Spark charts | Thấp (demo đẹp hơn) | Thấp | Thấp | Pending |

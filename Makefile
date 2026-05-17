@@ -1,6 +1,6 @@
 ifneq (,$(wildcard .env))
-    include .env
-    export
+	include .env
+	export
 endif
 
 DOCKER_USERNAME ?= otto
@@ -11,6 +11,20 @@ build:
 	docker build -f Dockerfile.streaming -t $(DOCKER_USERNAME)/otto-spark-streaming:$(TAG) .
 	docker build -f Dockerfile.dashboard -t $(DOCKER_USERNAME)/otto-dashboard:$(TAG) .
 	docker build -f Dockerfile.setup -t $(DOCKER_USERNAME)/otto-setup:$(TAG) .
+
+build-api:
+	docker build -f Dockerfile.api -t $(DOCKER_USERNAME)/otto-api:$(TAG) .
+
+build-streaming:
+	docker build -f Dockerfile.streaming -t $(DOCKER_USERNAME)/otto-spark-streaming:$(TAG) .
+
+
+build-dashboard:
+	docker build -f Dockerfile.dashboard -t $(DOCKER_USERNAME)/otto-dashboard:$(TAG) .
+
+build-setup:
+	docker build -f Dockerfile.setup -t $(DOCKER_USERNAME)/otto-setup:$(TAG) .
+
 
 push:
 	docker push $(DOCKER_USERNAME)/otto-api:$(TAG)
@@ -38,4 +52,4 @@ clean-all: clean
 		$(DOCKER_USERNAME)/otto-spark-streaming:$(TAG)-dev \
 		$(DOCKER_USERNAME)/otto-dashboard:$(TAG)-dev 2>/dev/null || true
 
-.PHONY: build push build-push build-dev clean clean-all
+.PHONY: build push build-push build-dev clean clean-all build-api build-streaming build-dashboard build-setup

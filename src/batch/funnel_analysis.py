@@ -173,7 +173,6 @@ def main():
     
     # Add computed_at for API ordering
     funnel_stats_df = funnel_stats_df.withColumn("computed_at", current_timestamp())
-    stats_sessions_df = stats_sessions_df.withColumn("computed_at", current_timestamp())
 
     try:
         # Table 1: funnel_stats (Main Dashboard Funnel)

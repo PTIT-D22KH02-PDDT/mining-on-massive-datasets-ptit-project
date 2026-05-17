@@ -10,6 +10,16 @@ services:
     volumes:
       - ./src:/opt/app/src:ro
       - ./config:/opt/app/config:ro
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=otto_recommender
+      - POSTGRES_USER=otto
+      - POSTGRES_PASSWORD=otto123
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
 
   dashboard:
     image: ${DOCKER_USERNAME:-otto}/otto-dashboard:${DOCKER_TAG:-latest}
@@ -20,6 +30,8 @@ services:
       - ./src:/opt/app/src:ro
       - ./config:/opt/app/config:ro
       - ./streamlit_app.py:/opt/app/streamlit_app.py:ro
+    environment:
+      - API_URL=http://api:8000
 
   spark-streaming:
     image: ${DOCKER_USERNAME:-otto}/otto-spark-streaming:${DOCKER_TAG:-latest}
@@ -36,6 +48,13 @@ services:
       - ./config:/opt/app/config:ro
       - ./spark-checkpoints:/tmp/spark-checkpoints
       - ./datasets:/opt/app/datasets
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=otto_recommender
+      - POSTGRES_USER=otto
+      - POSTGRES_PASSWORD=otto123
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
 
   setup-jobs:
     image: ${DOCKER_USERNAME:-otto}/otto-setup:${DOCKER_TAG:-latest}
@@ -46,3 +65,10 @@ services:
       - ./src:/opt/app/src:ro
       - ./config:/opt/app/config:ro
       - ./datasets:/opt/app/datasets
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=otto_recommender
+      - POSTGRES_USER=otto
+      - POSTGRES_PASSWORD=otto123
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092

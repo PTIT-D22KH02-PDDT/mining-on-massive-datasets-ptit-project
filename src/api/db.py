@@ -295,6 +295,20 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to log online hit: {e}")
 
+    def log_online_hits_batch(self, hits: List[tuple]):
+        """Bulk insert online hits (session_id, aid, event_type, is_hit)."""
+        if not hits:
+            return
+        try:
+            with self.cursor() as cur:
+                batch_size = 100
+                for i in range(0, len(hits), batch_size):
+                    batch = hits[i:i + batch_size]
+                    args_str = ','.join(cur.mogrify("(%s, %s, %s, %s)", row).decode() for row in batch)
+                    cur.execute(f"INSERT INTO online_hits (session_id, aid, event_type, is_hit) VALUES {args_str}")
+        except Exception as e:
+            logger.error(f"Failed to log online hits batch: {e}")
+
     def get_advanced_funnel_stats(self) -> List[Dict]:
         """Get performance funnel metrics per recommendation model."""
         try:

@@ -50,9 +50,13 @@ st.sidebar.markdown("---")
 st.sidebar.header("System Health")
 health = get_health()
 if health:
-    st.sidebar.success(f"API: {health['status'].upper()}")
-    st.sidebar.info(f"Redis: {health['redis'].upper()}")
-    st.sidebar.info(f"Postgres: {health['postgres'].upper()}")
+    st.sidebar.success(f"API: {health.get('status', 'unknown').upper()}")
+    redis_status = health.get('redis', {}).get('status', 'unknown')
+    pg_status = health.get('postgres', {}).get('status', 'unknown')
+    redis_mem = health.get('redis', {}).get('memory_mb', '-')
+    pg_conns = health.get('postgres', {}).get('active_connections', '-')
+    st.sidebar.info(f"Redis: {redis_status.upper()} [{redis_mem}]")
+    st.sidebar.info(f"Postgres: {pg_status.upper()} [{pg_conns} conns]")
 else:
     st.sidebar.error("API: OFFLINE")
 
@@ -80,7 +84,7 @@ if view == "Dashboard Overview":
             st.metric("Avg Latency", f"{avg_latency:.1f} ms")
         with m5:
             hit_stats = stats.get("hit_rate_stats", {})
-            hr = hit_stats.get("hit_rate", 0) * 100 if hit_stats else 0
+            hr = (hit_stats.get("hit_rate") or 0) * 100 if hit_stats else 0
             st.metric("Hit Rate", f"{hr:.2f}%")
 
         st.markdown("---")
@@ -157,9 +161,9 @@ elif view == "Advanced Analytics":
                 st.plotly_chart(fig, use_container_width=True)
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Click -> Cart", f"{f_data.get('click_to_cart_rate', 0)*100:.1f}%")
-                c2.metric("Cart -> Order", f"{f_data.get('cart_to_order_rate', 0)*100:.1f}%")
-                c3.metric("Click -> Order", f"{f_data.get('click_to_order_rate', 0)*100:.1f}%")
+                c1.metric("Click -> Cart", f"{(f_data.get('click_to_cart_rate') or 0)*100:.1f}%")
+                c2.metric("Cart -> Order", f"{(f_data.get('cart_to_order_rate') or 0)*100:.1f}%")
+                c3.metric("Click -> Order", f"{(f_data.get('click_to_order_rate') or 0)*100:.1f}%")
             else:
                 st.info("No funnel data available.")
             
@@ -219,12 +223,12 @@ elif view == "Advanced Analytics":
             if hr_stats and hr_stats.get("total_actions", 0) > 0:
                 st.subheader("Real-time Recommendation Accuracy")
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Hit Rate (Conversion)", f"{hr_stats.get('hit_rate', 0)*100:.2f}%")
+                c1.metric("Hit Rate (Conversion)", f"{(hr_stats.get('hit_rate') or 0)*100:.2f}%")
                 c2.metric("Total Hits", hr_stats.get("total_hits", 0))
                 c3.metric("Total Eval Actions", hr_stats.get("total_actions", 0))
                 
                 # Your awesome visual gauge chart
-                rate = hr_stats.get('hit_rate', 0) * 100
+                rate = (hr_stats.get('hit_rate') or 0) * 100
                 st.plotly_chart(go.Figure(go.Indicator(
                     mode = "gauge+number",
                     value = rate,
