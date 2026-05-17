@@ -30,13 +30,13 @@ services:
       retries: 5
       start_period: 30s
 
-
   kafka-ui:
     image: provectuslabs/kafka-ui
     ports:
       - "8989:8080"
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     restart: always
     environment:
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
@@ -75,11 +75,40 @@ services:
           cpus: '1.0'
           memory: 2g
 
-  # --- Application Services ---
-  
+  # === One-time Setup ===
+
+  setup-jobs:
+    image: ${DOCKER_USERNAME:-otto}/otto-setup:${DOCKER_TAG:-latest}
+    container_name: otto-setup-jobs
+    command: >
+      bash -c "
+      echo 'Creating Kafka topics...' &&
+      python3 src/scripts/create_kafka_topic.py &&
+      echo 'Running funnel analysis...' &&
+      python3 src/batch/funnel_analysis.py &&
+      echo 'Seeding popular items...' &&
+      python3 src/batch/seed_popular_items.py &&
+      echo 'Setup complete!'
+      "
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    environment:
+      - POSTGRES_HOST=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - PYSPARK_PYTHON=python3
+    networks:
+      - spark-net
+    volumes:
+      - ./datasets:/opt/app/datasets
+    restart: "no"
+
+  # === Application Services ===
+
   api:
-    build: .
-    image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-api:${DOCKER_TAG:-latest}
+    image: ${DOCKER_USERNAME:-otto}/otto-api:${DOCKER_TAG:-latest}
     container_name: otto-api
     command: python3 src/api/main.py
     ports:
@@ -98,10 +127,9 @@ services:
       - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
     networks:
       - spark-net
-      
+
   dashboard:
-    build: .
-    image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-dashboard:${DOCKER_TAG:-latest}
+    image: ${DOCKER_USERNAME:-otto}/otto-dashboard:${DOCKER_TAG:-latest}
     container_name: otto-dashboard
     command: streamlit run streamlit_app.py
     ports:
@@ -114,8 +142,7 @@ services:
       - spark-net
 
   spark-streaming:
-    build: .
-    image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-spark-streaming:${DOCKER_TAG:-latest}
+    image: ${DOCKER_USERNAME:-otto}/otto-spark-streaming:${DOCKER_TAG:-latest}
     container_name: otto-spark-streaming
     command: python3 src/streaming/spark_streaming_job.py
     depends_on:
@@ -123,39 +150,13 @@ services:
         condition: service_healthy
       postgres:
         condition: service_started
+      setup-jobs:
+        condition: service_completed_successfully
     environment:
       - POSTGRES_HOST=postgres
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     volumes:
       - ./spark-checkpoints:/tmp/spark-checkpoints
-      - ./datasets:/opt/app/datasets
-    networks:
-      - spark-net
-
-  setup-jobs:
-    build: .
-    image: ${DOCKER_USERNAME:-YOUR_USERNAME}/otto-setup:${DOCKER_TAG:-latest}
-    container_name: otto-setup
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_started
-    environment:
-      - POSTGRES_HOST=postgres
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-    command: >
-      bash -c "
-      echo 'Waiting for services to be ready...' &&
-      sleep 10 &&
-      echo 'Creating Kafka Topic...' &&
-      python3 src/scripts/create_kafka_topic.py &&
-      echo 'Running Initial Batch Analysis...' &&
-      python3 src/batch/funnel_analysis.py &&
-      python3 src/batch/seed_popular_items.py &&
-      echo 'Setup Complete!'
-      "
-    volumes:
       - ./datasets:/opt/app/datasets
     networks:
       - spark-net

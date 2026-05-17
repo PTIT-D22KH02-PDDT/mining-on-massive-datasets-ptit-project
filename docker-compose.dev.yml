@@ -1,0 +1,48 @@
+include:
+  - docker-compose.yml
+
+services:
+  api:
+    image: ${DOCKER_USERNAME:-otto}/otto-api:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    volumes:
+      - ./src:/opt/app/src:ro
+      - ./config:/opt/app/config:ro
+
+  dashboard:
+    image: ${DOCKER_USERNAME:-otto}/otto-dashboard:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    volumes:
+      - ./src:/opt/app/src:ro
+      - ./config:/opt/app/config:ro
+      - ./streamlit_app.py:/opt/app/streamlit_app.py:ro
+
+  spark-streaming:
+    image: ${DOCKER_USERNAME:-otto}/otto-spark-streaming:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.streaming
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    volumes:
+      - ./src:/opt/app/src:ro
+      - ./config:/opt/app/config:ro
+      - ./spark-checkpoints:/tmp/spark-checkpoints
+      - ./datasets:/opt/app/datasets
+
+  setup-jobs:
+    image: ${DOCKER_USERNAME:-otto}/otto-setup:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.setup
+    volumes:
+      - ./src:/opt/app/src:ro
+      - ./config:/opt/app/config:ro
+      - ./datasets:/opt/app/datasets
