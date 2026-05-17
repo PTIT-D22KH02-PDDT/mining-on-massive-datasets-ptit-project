@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -11,12 +12,17 @@ class OfflineEvaluator:
 
     def __init__(
         self,
-        pg_host: str = "postgres",
-        pg_port: int = 5432,
-        pg_db: str = "otto_recommender",
-        pg_user: str = "otto",
-        pg_password: str = "otto123",
+        pg_host: str = None,
+        pg_port: int = None,
+        pg_db: str = None,
+        pg_user: str = None,
+        pg_password: str = None,
     ):
+        pg_host = pg_host or os.getenv("POSTGRES_HOST", "localhost")
+        pg_port = int(pg_port or os.getenv("POSTGRES_PORT", "5432"))
+        pg_db = pg_db or os.getenv("POSTGRES_DB", "otto_recommender")
+        pg_user = pg_user or os.getenv("POSTGRES_USER", "otto")
+        pg_password = pg_password or os.getenv("POSTGRES_PASSWORD", "otto123")
         self.pg_conn = psycopg2.connect(
             host=pg_host, port=pg_port, database=pg_db, user=pg_user, password=pg_password
         )
@@ -143,17 +149,26 @@ class OnlineEvaluator:
     def __init__(
         self,
         bootstrap_servers: str,
-        redis_host: str = "redis",
-        redis_port: int = 6379,
-        pg_host: str = "postgres",
-        pg_port: int = 5432,
-        pg_db: str = "otto_recommender",
-        pg_user: str = "otto",
-        pg_password: str = "otto123",
+        redis_host: str = None,
+        redis_port: int = None,
+        pg_host: str = None,
+        pg_port: int = None,
+        pg_db: str = None,
+        pg_user: str = None,
+        pg_password: str = None,
         predictions_topic: str = "predictions",
         user_events_topic: str = "user-events",
         results_topic: str = "evaluation-results",
     ):
+        import os
+        redis_host = redis_host or os.getenv("REDIS_HOST", "localhost")
+        redis_port = int(redis_port or os.getenv("REDIS_PORT", "6379"))
+        pg_host = pg_host or os.getenv("POSTGRES_HOST", "localhost")
+        pg_port = int(pg_port or os.getenv("POSTGRES_PORT", "5432"))
+        pg_db = pg_db or os.getenv("POSTGRES_DB", "otto_recommender")
+        pg_user = pg_user or os.getenv("POSTGRES_USER", "otto")
+        pg_password = pg_password or os.getenv("POSTGRES_PASSWORD", "otto123")
+
         self.bootstrap_servers = bootstrap_servers
         self.predictions_topic = predictions_topic
         self.user_events_topic = user_events_topic
@@ -164,7 +179,6 @@ class OnlineEvaluator:
         self.prediction_cache = defaultdict(list)
         self.latencies = []
 
-        # Redis for real-time state
         self.redis = redis.Redis(host=redis_host, port=redis_port, db=0, decode_responses=True)
 
         # PostgreSQL for persistent storage

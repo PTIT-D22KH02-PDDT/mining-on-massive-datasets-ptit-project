@@ -18,13 +18,17 @@ class Database:
     def __init__(
         self,
         host: str = None,
-        port: int = 5432,
-        dbname: str = "otto_recommender",
-        user: str = "otto",
-        password: str = "otto123",
+        port: int = None,
+        dbname: str = None,
+        user: str = None,
+        password: str = None,
     ):
         import os
         host = host or os.getenv("POSTGRES_HOST", "localhost")
+        port = port or int(os.getenv("POSTGRES_PORT", "5432"))
+        dbname = dbname or os.getenv("POSTGRES_DB", "otto_recommender")
+        user = user or os.getenv("POSTGRES_USER", "otto")
+        password = password or os.getenv("POSTGRES_PASSWORD", "otto123")
         self.conn_params = dict(host=host, port=port, dbname=dbname, user=user, password=password)
         self._conn = None
 

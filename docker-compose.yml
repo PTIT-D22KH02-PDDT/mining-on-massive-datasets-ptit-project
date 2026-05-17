@@ -61,9 +61,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=otto_recommender
-      - POSTGRES_USER=otto
-      - POSTGRES_PASSWORD=otto123
+      - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
+      - POSTGRES_USER=${POSTGRES_USER:-otto}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d
@@ -97,6 +97,9 @@ services:
         condition: service_started
     environment:
       - POSTGRES_HOST=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-otto}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
+      - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - PYSPARK_PYTHON=python3
     networks:
@@ -122,7 +125,12 @@ services:
         condition: service_started
     environment:
       - REDIS_HOST=redis
+      - REDIS_PORT=${REDIS_PORT:-6379}
       - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
+      - POSTGRES_USER=${POSTGRES_USER:-otto}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
     networks:
@@ -154,6 +162,10 @@ services:
         condition: service_completed_successfully
     environment:
       - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
+      - POSTGRES_USER=${POSTGRES_USER:-otto}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     volumes:
       - ./spark-checkpoints:/tmp/spark-checkpoints

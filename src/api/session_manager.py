@@ -19,8 +19,9 @@ SESSION_TTL_SECONDS = 30 * 60  # 30 minutes
 class SessionManager:
     """Manages user sessions in Redis."""
 
-    def __init__(self, host: str = None, port: int = 6379, db: int = 0):
+    def __init__(self, host: str = None, port: int = None, db: int = 0):
         host = host or os.getenv("REDIS_HOST", "localhost")
+        port = port or int(os.getenv("REDIS_PORT", "6379"))
         self.redis = redis.Redis(host=host, port=port, db=db, decode_responses=True)
         try:
             self.redis.ping()

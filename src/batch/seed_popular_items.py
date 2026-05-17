@@ -23,10 +23,14 @@ DATA_PATH = str(root_dir / "datasets" / "otto-recommender-system" / "test.jsonl"
 TOP_K = 100
 
 PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
-PG_URL = f"jdbc:postgresql://{PG_HOST}:5432/otto_recommender"
+PG_PORT = os.getenv("POSTGRES_PORT", "5432")
+PG_DB = os.getenv("POSTGRES_DB", "otto_recommender")
+PG_USER = os.getenv("POSTGRES_USER", "otto")
+PG_PASSWORD = os.getenv("POSTGRES_PASSWORD", "otto123")
+PG_URL = f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{PG_DB}"
 PG_PROPERTIES = {
-    "user": "otto",
-    "password": "otto123",
+    "user": PG_USER,
+    "password": PG_PASSWORD,
     "driver": "org.postgresql.Driver"
 }
 

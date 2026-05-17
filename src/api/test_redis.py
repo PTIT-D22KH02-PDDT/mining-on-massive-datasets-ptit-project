@@ -1,5 +1,10 @@
+import os
 import redis
-r = redis.Redis(host='localhost', port=6379, db=0)
+
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
 
 for key in r.scan_iter("*"):
     data_type = r.type(key).decode('utf-8')
@@ -9,4 +14,3 @@ for key in r.scan_iter("*"):
         print(f"{key}: {r.hgetall(key)}\n")
     elif data_type == 'list':
         print(f"{key}: {r.lrange(key, 0, -1)}\n")
-    # Add other types as needed
