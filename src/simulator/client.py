@@ -134,7 +134,7 @@ async def run_simulator(
 
 def main():
     parser = argparse.ArgumentParser(description="OTTO Session Simulator")
-    parser.add_argument("--file", default="literature-review/duong/test.jsonl", help="Path to JSONL file")
+    parser.add_argument("--file", default="datasets/otto-recommender-system/test.jsonl", help="Path to JSONL file")
     parser.add_argument("--api", default="http://localhost:8000", help="API server URL")
     parser.add_argument("--sessions", type=int, default=10, help="Number of sessions to replay")
     parser.add_argument("--concurrency", type=int, default=3, help="Max concurrent sessions")
