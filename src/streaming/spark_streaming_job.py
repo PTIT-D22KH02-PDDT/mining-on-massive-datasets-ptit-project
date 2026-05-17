@@ -12,7 +12,7 @@ import logging
 import json
 import psycopg2
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, window, count, when, expr, lit, struct, to_json, approx_count_distinct
+from pyspark.sql.functions import from_json, col, window, count, when, expr, lit, struct, to_json, approx_count_distinct, min as spark_min, max as spark_max, sum as spark_sum
 from pyspark.sql.types import StructType, StructField, LongType, StringType, TimestampType
 from pyspark.sql.streaming import StreamingQueryListener
 
@@ -34,7 +34,8 @@ schema = StructType([
     StructField("session_id", LongType(), True),
     StructField("aid", LongType(), True),
     StructField("type", StringType(), True),
-    StructField("ts", LongType(), True)
+    StructField("ts", LongType(), True),
+    StructField("model_used", StringType(), True)
 ])
 
 # --- Metrics Listener ---
@@ -144,6 +145,7 @@ def main():
         .groupBy(window(col("timestamp"), "1 minute"), "session_id") \
         .count() \
         .filter("count > 50") \
+        .dropDuplicates(["session_id"]) \
         .select(
             col("session_id"),
             lit("BOT_TRAFFIC").alias("anomaly_type"),
@@ -166,34 +168,75 @@ def main():
 
     # --- PIPELINE D: Real-time Item Performance (stats_items) ---
     items_stats_df = events_df \
-        .groupBy("aid") \
+        .groupBy(window(col("timestamp"), "1 hour"), "aid") \
         .agg(
             count(when(col("type") == "clicks", 1)).alias("clicks"),
             count(when(col("type") == "carts", 1)).alias("carts"),
             count(when(col("type") == "orders", 1)).alias("orders")
+        ) \
+        .select(
+            col("aid"),
+            col("clicks"),
+            col("carts"),
+            col("orders")
         )
 
     # --- PIPELINE E: Model Performance (Advanced Funnel) ---
-    # Lưu ý: Pipeline này cần Join với Postgres nên logic Join sẽ nằm trong hàm xử lý Batch
+    # model_used is now embedded in the Kafka event, no need to join with predictions_log
     def process_model_performance(batch_df, batch_id):
-        # 1. Đọc mapping session -> model mới nhất từ Postgres
-        predictions_log_df = spark.read.jdbc(url=PG_URL, table="predictions_log", properties=PG_PROPERTIES) \
-            .select("session_id", "model_used").dropDuplicates(["session_id"])
-        
-        # 2. Join luồng sự kiện với mapping model
-        enriched_df = batch_df.join(predictions_log_df, "session_id")
-        
-        # 3. Tính toán phễu theo từng Model
-        model_funnel_df = enriched_df.groupBy("model_used").agg(
+        # Filter events that have model_used (skip events without model info)
+        valid_df = batch_df.filter(col("model_used").isNotNull())
+
+        # Calculate funnel per model
+        model_funnel_df = valid_df.groupBy("model_used").agg(
             approx_count_distinct("session_id").alias("total_sessions"),
             approx_count_distinct(when(col("type") == "clicks", col("session_id"))).alias("sessions_with_clicks"),
             approx_count_distinct(when(col("type") == "carts", col("session_id"))).alias("sessions_with_carts"),
             approx_count_distinct(when(col("type") == "orders", col("session_id"))).alias("sessions_with_orders")
-        ).withColumn("click_to_order_rate", 
+        ).withColumn("click_to_order_rate",
             when(col("sessions_with_clicks") > 0, col("sessions_with_orders").cast("float") / col("sessions_with_clicks").cast("float")).otherwise(0.0))
-        
-        # 4. Ghi vào Postgres (UPSERT)
+
+        # Write to Postgres (UPSERT via write_all_to_postgres)
         write_all_to_postgres(model_funnel_df, batch_id, "advanced_funnel_stats")
+
+    # --- PIPELINE F: Session Segmentation (stats_sessions) ---
+    # Compute session type classification per micro-batch and accumulate to DB
+    def process_stats_sessions(batch_df, batch_id):
+        session_stats_df = batch_df.groupBy("session_id").agg(
+            count("*").alias("session_length"),
+            spark_max(when(col("type") == "clicks", 1).otherwise(0)).alias("has_clicks"),
+            spark_max(when(col("type") == "carts", 1).otherwise(0)).alias("has_carts"),
+            spark_max(when(col("type") == "orders", 1).otherwise(0)).alias("has_orders"),
+            spark_min(col("ts")).alias("first_ts"),
+            spark_max(col("ts")).alias("last_ts")
+        ).withColumn(
+            "session_type",
+            when(col("has_orders") == 1, "buyer")
+            .when(col("has_carts") == 1, "cart_abandoner")
+            .otherwise("browse_only")
+        ).withColumn(
+            "duration_sec",
+            (col("last_ts") - col("first_ts")) / 1000.0
+        )
+
+        type_stats_df = session_stats_df.groupBy("session_type").agg(
+            count("*").alias("count"),
+            spark_sum("session_length").alias("total_length"),
+            spark_sum("duration_sec").alias("total_duration")
+        ).withColumn(
+            "avg_length",
+            col("total_length") / col("count")
+        ).withColumn(
+            "avg_duration_sec",
+            col("total_duration") / col("count")
+        ).select(
+            "session_type",
+            "count",
+            "avg_length",
+            "avg_duration_sec"
+        )
+
+        write_all_to_postgres(type_stats_df, batch_id, "stats_sessions")
 
     # 5. Write to PostgreSQL using foreachBatch
     def write_all_to_postgres(batch_df, batch_id, table_name):
@@ -224,8 +267,9 @@ def main():
                                 INSERT INTO popular_items (time_scope, event_type, aid, count, rank)
                                 VALUES (%s, %s, %s, %s, %s)
                                 ON CONFLICT (time_scope, event_type, aid)
-                                DO UPDATE SET 
-                                    count = popular_items.count + EXCLUDED.count
+                                DO UPDATE SET
+                                    count = EXCLUDED.count,
+                                    rank = EXCLUDED.rank
                                 """,
                                 (row['time_scope'], row['event_type'], row['aid'], row['count'], row['rank'])
                             )
@@ -249,21 +293,21 @@ def main():
                                 INSERT INTO stats_items (aid, total_clicks, total_carts, total_orders, last_updated)
                                 VALUES (%s, %s, %s, %s, NOW())
                                 ON CONFLICT (aid) DO UPDATE SET
-                                    total_clicks = stats_items.total_clicks + EXCLUDED.total_clicks,
-                                    total_carts = stats_items.total_carts + EXCLUDED.total_carts,
-                                    total_orders = stats_items.total_orders + EXCLUDED.total_orders,
+                                    total_clicks = EXCLUDED.total_clicks,
+                                    total_carts = EXCLUDED.total_carts,
+                                    total_orders = EXCLUDED.total_orders,
                                     last_updated = NOW(),
-                                    click_to_cart_rate = CASE 
-                                        WHEN (stats_items.total_clicks + EXCLUDED.total_clicks) > 0 
-                                        THEN CAST((stats_items.total_carts + EXCLUDED.total_carts) AS FLOAT) / (stats_items.total_clicks + EXCLUDED.total_clicks)
+                                    click_to_cart_rate = CASE
+                                        WHEN EXCLUDED.total_clicks > 0
+                                        THEN CAST(EXCLUDED.total_carts AS FLOAT) / EXCLUDED.total_clicks
                                         ELSE 0 END,
-                                    cart_to_order_rate = CASE 
-                                        WHEN (stats_items.total_carts + EXCLUDED.total_carts) > 0 
-                                        THEN CAST((stats_items.total_orders + EXCLUDED.total_orders) AS FLOAT) / (stats_items.total_carts + EXCLUDED.total_carts)
+                                    cart_to_order_rate = CASE
+                                        WHEN EXCLUDED.total_carts > 0
+                                        THEN CAST(EXCLUDED.total_orders AS FLOAT) / EXCLUDED.total_carts
                                         ELSE 0 END,
-                                    click_to_order_rate = CASE 
-                                        WHEN (stats_items.total_clicks + EXCLUDED.total_clicks) > 0 
-                                        THEN CAST((stats_items.total_orders + EXCLUDED.total_orders) AS FLOAT) / (stats_items.total_clicks + EXCLUDED.total_clicks)
+                                    click_to_order_rate = CASE
+                                        WHEN EXCLUDED.total_clicks > 0
+                                        THEN CAST(EXCLUDED.total_orders AS FLOAT) / EXCLUDED.total_clicks
                                         ELSE 0 END
                                 """,
                                 (row['aid'], row['clicks'], row['carts'], row['orders'])
@@ -285,17 +329,17 @@ def main():
                         for row in rows:
                             cur.execute(
                                 """
-                                INSERT INTO advanced_funnel_stats 
+                                INSERT INTO advanced_funnel_stats
                                     (model_used, total_sessions, sessions_with_clicks, sessions_with_carts, sessions_with_orders, click_to_order_rate, last_updated)
                                 VALUES (%s, %s, %s, %s, %s, %s, NOW())
                                 ON CONFLICT (model_used) DO UPDATE SET
-                                    total_sessions = advanced_funnel_stats.total_sessions + EXCLUDED.total_sessions,
-                                    sessions_with_clicks = advanced_funnel_stats.sessions_with_clicks + EXCLUDED.sessions_with_clicks,
-                                    sessions_with_carts = advanced_funnel_stats.sessions_with_carts + EXCLUDED.sessions_with_carts,
-                                    sessions_with_orders = advanced_funnel_stats.sessions_with_orders + EXCLUDED.sessions_with_orders,
-                                    click_to_order_rate = CASE 
-                                        WHEN (advanced_funnel_stats.sessions_with_clicks + EXCLUDED.sessions_with_clicks) > 0 
-                                        THEN CAST((advanced_funnel_stats.sessions_with_orders + EXCLUDED.sessions_with_orders) AS FLOAT) / (advanced_funnel_stats.sessions_with_clicks + EXCLUDED.sessions_with_clicks)
+                                    total_sessions = EXCLUDED.total_sessions,
+                                    sessions_with_clicks = EXCLUDED.sessions_with_clicks,
+                                    sessions_with_carts = EXCLUDED.sessions_with_carts,
+                                    sessions_with_orders = EXCLUDED.sessions_with_orders,
+                                    click_to_order_rate = CASE
+                                        WHEN EXCLUDED.sessions_with_clicks > 0
+                                        THEN CAST(EXCLUDED.sessions_with_orders AS FLOAT) / EXCLUDED.sessions_with_clicks
                                         ELSE 0 END,
                                     last_updated = NOW()
                                 """,
@@ -328,7 +372,41 @@ def main():
                     conn.close()
 
                 batch_df.foreachPartition(upsert_anomalies)
-            
+
+            elif table_name == "stats_sessions":
+                rows_list = batch_df.collect()
+                if not rows_list:
+                    return
+
+                total_count = sum(r['count'] for r in rows_list)
+
+                def upsert_stats_session(conn, row):
+                    pct = (float(row['count']) / total_count * 100) if total_count > 0 else 0.0
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            INSERT INTO stats_sessions (session_type, count, avg_length, avg_duration_sec, pct_of_total)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (session_type) DO UPDATE SET
+                                count = EXCLUDED.count,
+                                avg_length = EXCLUDED.avg_length,
+                                avg_duration_sec = EXCLUDED.avg_duration_sec,
+                                pct_of_total = EXCLUDED.pct_of_total
+                            """,
+                            (row['session_type'], row['count'], row['avg_length'], row['avg_duration_sec'], pct)
+                        )
+
+                conn = psycopg2.connect(
+                    host=os.getenv("POSTGRES_HOST", "localhost"), port=5432, dbname="otto_recommender",
+                    user="otto", password="otto123"
+                )
+                try:
+                    for row in rows_list:
+                        upsert_stats_session(conn, row)
+                    conn.commit()
+                finally:
+                    conn.close()
+
             else:
                 # Default JDBC write for other tables
                 batch_df.write \
@@ -370,6 +448,13 @@ def main():
         .outputMode("update") \
         .queryName("Model-Performance-Query") \
         .foreachBatch(process_model_performance) \
+        .start()
+
+    # Pipeline F: Real-time Session Segmentation (stats_sessions)
+    query_stats_sessions = events_df.writeStream \
+        .outputMode("update") \
+        .queryName("Stats-Sessions-Query") \
+        .foreachBatch(process_stats_sessions) \
         .start()
 
     print(f"Spark Streaming Job with Metrics Listener started.")

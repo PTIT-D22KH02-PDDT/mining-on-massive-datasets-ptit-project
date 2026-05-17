@@ -162,28 +162,12 @@ async def receive_event(event: EventRequest, background_tasks: BackgroundTasks):
     ts = event.ts or int(time.time() * 1000)
     session_length = session_mgr.append_event(event.session_id, event.aid, event.type, ts)
 
-    # 2. Async Tasks (Background)
-    # Publish to Kafka
-    if kafka_producer:
-        background_tasks.add_task(
-            kafka_producer.send,
-            "user-events",
-            {"session_id": event.session_id, "aid": event.aid, "type": event.type, "ts": ts},
-            key=str(event.session_id)
-        )
-
-    # Save event to PostgreSQL
-    if db:
-        background_tasks.add_task(db.log_event, event.session_id, event.aid, event.type, ts)
-
-    # 3. Hybrid Logic for Recommendations
-    # OPTIMIZATION: Only re-compute heavy recommendations every 3 events or for carts/orders
-    # Otherwise, return cached recommendations from Redis
+    # 2. Determine model and recommendations BEFORE Kafka send (model_used needed in event)
     cached_recs = session_mgr.get_last_recommendations(event.session_id)
-    
+
     should_recompute = (
-        session_length % 3 == 0 or 
-        event.type in ["carts", "orders"] or 
+        session_length % 3 == 0 or
+        event.type in ["carts", "orders"] or
         not cached_recs
     )
 
@@ -200,7 +184,6 @@ async def receive_event(event: EventRequest, background_tasks: BackgroundTasks):
             if covisitation:
                 try:
                     recommendations = covisitation.recommend_multi_objective(session_aids, TOP_K)
-                    # Fallback if covisitation matrices are empty or return no candidates
                     if not any(recommendations.values()):
                         logger.warning("Covisitation returned no results, falling back to cold_start")
                         model_used = "covisitation_fallback_cold_start"
@@ -212,11 +195,22 @@ async def receive_event(event: EventRequest, background_tasks: BackgroundTasks):
                 recommendations = cold_start.recommend(session_aids, TOP_K)
         else:
             model_used = "sasrec_deep_learning"
-            # This is the heavy part (Remote call or Local Torch)
             recommendations = sasrec.recommend_multi_objective(session_aids, TOP_K)
-        
-        # Update cache
+
         session_mgr.store_recommendations(event.session_id, recommendations)
+
+    # 3. Publish to Kafka (now includes model_used)
+    if kafka_producer:
+        background_tasks.add_task(
+            kafka_producer.send,
+            "user-events",
+            {"session_id": event.session_id, "aid": event.aid, "type": event.type, "ts": ts, "model_used": model_used},
+            key=str(event.session_id)
+        )
+
+    # Save event to PostgreSQL
+    if db:
+        background_tasks.add_task(db.log_event, event.session_id, event.aid, event.type, ts)
 
     latency_ms = (time.time() - start_time) * 1000
 
@@ -232,9 +226,9 @@ async def receive_event(event: EventRequest, background_tasks: BackgroundTasks):
             predicted_orders=recommendations.get("orders", []),
             latency_ms=latency_ms
         )
-        
-        if event.type in ["carts", "orders"] and cached_recs:
-            all_recs = set(cached_recs.get("clicks", []) + cached_recs.get("carts", []) + cached_recs.get("orders", []))
+
+        if event.type in ["carts", "orders"]:
+            all_recs = set(recommendations.get("clicks", []) + recommendations.get("carts", []) + recommendations.get("orders", []))
             is_hit = event.aid in all_recs
             background_tasks.add_task(db.log_online_hit, event.session_id, event.aid, event.type, is_hit)
 

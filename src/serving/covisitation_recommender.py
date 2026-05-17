@@ -42,10 +42,10 @@ class CovisitationRecommender:
             print(f"Error loading buy2buy matrix: {e}")
 
     def _build_lookup(self, df, key_col: str, value_col: str, weight_col: str) -> Dict[int, List[tuple]]:
-        """Build a lookup dictionary from DataFrame."""
+        """Build a lookup dictionary from DataFrame using efficient groupby."""
         lookup = defaultdict(list)
-        for _, row in df.iterrows():
-            lookup[row[key_col]].append((row[value_col], row[weight_col]))
+        for key, group in df.groupby(key_col):
+            lookup[key] = list(zip(group[value_col].tolist(), group[weight_col].tolist()))
         return dict(lookup)
 
     def recommend(
