@@ -12,6 +12,13 @@ Tạo thư mục lưu dữ liệu Kafka
 sudo chown -R 1000:1000 ./kafka_data
 ```
 
+Chạy uv sync toàn bộ extra 
+
+```bash
+uv sync --all-extras
+```
+
+
 ## 1. Khởi động Toàn bộ Hệ thống
 
 Đảm bảo bạn đã cài đặt Docker và Docker Compose. Mở terminal tại thư mục gốc của dự án và chạy:
