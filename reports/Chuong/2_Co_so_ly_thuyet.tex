@@ -1,0 +1,74 @@
+\documentclass[../BTL.tex]{subfiles}
+
+\begin{document}
+
+
+\section{Kafka}
+Apache Kafka là hệ thống xử lý dữ liệu phân tán hoạt động theo mô hình luồng sự kiện (event streaming), cho phép truyền tải và xử lý dữ liệu thời gian thực với độ trễ thấp và thông lượng cao. Kafka được phát triển ban đầu tại LinkedIn và sau đó trở thành dự án mã nguồn mở của Apache Software Foundation \cite{kafka_official}.
+
+Kafka sử dụng thuật toán Raft \cite{kafka_internals} để quản lý metadata và bầu chọn leader cho mỗi phân vùng (partition) thông qua cơ chế quorum. Nếu leader hiện tại bị lỗi, các follower sẽ tự động bầu chọn leader mới. Ngoài ra, Kafka dùng cơ chế phân vùng (partition) và sao chép (replication) để phân tán dữ liệu trên nhiều broker, tăng khả năng chịu lỗi và đạt thông lượng cao \cite{kafka_design}.
+
+\subsection{Kiến trúc cơ bản của Kafka}
+Kiến trúc của Kafka được tổ chức theo mô hình phân tán với các thành phần chính sau \cite{kafka_official,streaming_systems}:
+
+\begin{itemize}
+    \item \textbf{Broker (máy chủ trung chuyển):} Máy chủ trong cụm chịu trách nhiệm lưu trữ và phục vụ dữ liệu. Mỗi broker quản lý một tập các phân vùng (partition) thuộc các chủ đề (topic) khác nhau.
+    
+    \item \textbf{Topic (chủ đề):} Đơn vị phân loại dữ liệu trong Kafka. Mỗi topic đại diện cho một luồng dữ liệu có thứ tự. Bộ sản sinh (producer) gửi bản ghi tới topic và bộ tiêu thụ (consumer) đọc bản ghi từ topic.
+    
+    \item \textbf{Partition (phân vùng):} Mỗi topic được chia thành nhiều partition để cho phép song song hóa việc đọc và ghi dữ liệu. Các bản ghi trong mỗi partition được gán một số offset (độ dời) duy nhất. Bộ tiêu thụ (consumer) sử dụng offset để theo dõi vị trí đọc.
+    
+    \item \textbf{Producer (bộ sản sinh) / Consumer (bộ tiêu thụ):} Producer gửi bản ghi tới các topic và phân phối tới các partition dựa trên khóa phân vùng. Consumer đăng ký theo dõi topic và liên tục kéo (pull) các bản ghi mới từ broker. Kafka đảm bảo mỗi bản ghi trong một partition chỉ được đọc bởi một consumer trong cùng một nhóm tiêu thụ (consumer group).
+    
+    \item \textbf{Replication (sao chép):} Mỗi partition có một bản sao chính (leader) và nhiều bản sao dự phòng (follower). Tất cả thao tác ghi và đọc đều qua leader, và leader đồng bộ hóa dữ liệu tới các follower. Kafka hỗ trợ cấu hình mức độ sao chép (replication factor) và ba mức xác nhận (acknowledgement): \textit{acks=0}, \textit{acks=1}, và \textit{acks=all}.
+    
+    \item \textbf{KRaft:} Cơ chế quản lý metadata nội bộ của Kafka, thay thế cho ZooKeeper từ phiên bản 3.4. Một broker đóng vai trò controller, chịu trách nhiệm quản lý trạng thái các broker và xử lý sự kiện thay đổi trạng thái \cite{kafka_internals}.
+\end{itemize}
+
+Kafka hoạt động theo mô hình subscribe-publish (xuất bản - đăng ký), giúp tách rời bộ sản sinh và bộ tiêu thụ, cho phép hệ thống mở rộng linh hoạt. Dữ liệu được lưu trữ trong các partition theo cấu trúc log có thể cấu hình (retention period), cho phép consumer đọc lại dữ liệu cũ thông qua điều chỉnh offset \cite{kafka_definitive, streaming_systems}.
+
+Ưu điểm của Kafka: khả năng chịu tải và mở rộng cao, đảm bảo tính nhất quán (log-based consistency), độ tin cậy cao (nhờ replication), xử lý dòng sự kiện thời gian thực, và lưu trữ bền vững cho phép tái xử lý.
+
+Nhược điểm của Kafka: phức tạp trong triển khai và quản lý, yêu cầu tài nguyên đáng kể, khả năng quản lý dữ liệu cũ hạn chế, và rủi ro quá tải từ sự kiện không cần thiết \cite{kafka_official}.
+
+
+\section{Apache Spark}
+Apache Spark là framework xử lý dữ liệu phân tán mã nguồn mở, được thiết kế để xử lý và phân tích dữ liệu lớn với tốc độ cao. Spark sử dụng mô hình xử lý trong bộ nhớ (in-memory computing), cho phép ghi dữ liệu vào bộ nhớ đệm (cache) và thực thi truy vấn tối ưu hóa nhằm đạt hiệu suất cao hơn so với các framework dựa trên đĩa truyền thống \cite{spark_rdd, spark_definitive}.
+
+Spark được xây dựng dựa trên khái niệm Resilient Distributed Datasets (RDD) — tập dữ liệu phân tán có khả năng phục hồi lỗi (fault tolerance), là nền tảng cho xử lý song song và phân tán. Từ RDD, Spark phát triển thêm các API trừu tượng ở mức cao hơn như DataFrame và Dataset \cite{spark_rdd, spark_sql}.
+
+\subsection{Các thành phần chính của Spark}
+Spark được tổ chức thành các tầng thành phần xếp chồng lên nhau \cite{spark_definitive, spark_official}:
+
+\begin{itemize}
+    \item \textbf{Spark Core (lõi Spark):} Nền tảng của toàn bộ hệ thống, chịu trách nhiệm quản lý bộ nhớ, lập lịch tác vụ (task scheduling), theo dõi lỗi (fault recovery), và tương tác với hệ thống lưu trữ bên ngoài. Cung cấp API cho Java, Scala, Python và R \cite{spark_rdd}.
+    
+    \item \textbf{Spark SQL (module truy vấn có cấu trúc):} Cung cấp kiểu trừu tượng DataFrame/Dataset, hỗ trợ dữ liệu có cấu trúc và nửa cấu trúc. Sử dụng bộ tối ưu hóa Catalyst để phân tích, tối ưu và thực thi truy vấn tự động \cite{spark_sql}.
+    
+    \item \textbf{Spark Streaming / Structured Streaming (xử lý luồng):} Xử lý luồng dữ liệu bằng cách chia luồng thành các micro-batch và áp dụng RDD transformation lên từng lô nhỏ. Structured Streaming mở rộng DataFrame để xử lý luồng theo cách khai báo (declarative), tự động quản lý checkpoint và offset \cite{spark_streaming, spark_structured_streaming}.
+    
+    \item \textbf{MLlib (thư viện học máy):} Thư viện học máy tích hợp sẵn của Spark, cung cấp các thuật toán phân loại (classification), hồi quy (regression), gom cụm (clustering), lọc cộng tác (collaborative filtering) và giảm chiều (dimensionality reduction) \cite{spark_mllib}.
+    
+    \item \textbf{GraphX (xử lý đồ thị):} Khung xử lý đồ thị phân tán trên nền tảng Spark, cung cấp bộ API linh hoạt và các thuật toán đồ thị phân tán phổ biến như PageRank, connected components và triangle counting \cite{spark_graphx}.
+\end{itemize}
+
+Ưu điểm của Spark: tương thích cao với các nguồn dữ liệu Hadoop và nhiều hệ thống khác (Kafka, Cassandra, JDBC), hỗ trợ nhiều ngôn ngữ (Scala, Java, Python, R), xử lý trong bộ nhớ cho tốc độ cao, hỗ trợ batch processing, real-time analytics, machine learning và graph processing trong một framework duy nhất, và hệ sinh thái phong phú \cite{spark_definitive, spark_official}.
+
+\subsection{Cơ chế hoạt động của Spark}
+Spark giải quyết các hạn chế của Hadoop MapReduce bằng cách tối ưu hóa quy trình xử lý dữ liệu \cite{spark_rdd, spark_definitive}:
+
+\begin{itemize}
+    \item \textbf{Hadoop MapReduce} yêu cầu đọc-ghi đĩa nhiều lần qua HDFS cho mỗi giai đoạn (stage), gây độ trễ I/O đáng kể, đặc biệt khi cần nhiều vòng lặp tính toán liên tiếp \cite{hadoop_mapreduce}.
+    
+    \item \textbf{Xử lý trong bộ nhớ (in-memory processing):} Spark đọc dữ liệu một lần vào bộ nhớ, thực hiện các thao tác biến đổi (transformation) trực tiếp trên dữ liệu trong bộ nhớ, và chỉ ghi kết quả cuối cùng ra đĩa khi cần \cite{spark_rdd}.
+    
+    \item \textbf{Tái sử dụng dữ liệu (data reuse):} Spark sử dụng bộ nhớ đệm (cache) để lưu dữ liệu đã xử lý, cho phép nhiều thao tác tái sử dụng mà không cần tính toán lại. Đặc biệt hữu ích cho thuật toán học máy lặp và xử lý đồ thị \cite{spark_rdd, spark_sql}.
+    
+    \item \textbf{Đồ thị xử lý có hướng không chu trình (DAG):} Spark Core chuyển chương trình thành DAG gồm các giai đoạn (stage) và tác vụ (task). Mỗi giai đoạn chứa các tác vụ thực thi song song trên các executor, và Spark tối ưu hóa DAG bằng cách gộp các thao tác có thể thực hiện cùng nhau \cite{spark_rdd}.
+    
+    \item \textbf{Đánh giá lười (lazy evaluation):} Các phép biến đổi (transformation) trên RDD hoặc DataFrame không được thực thi ngay, chỉ được ghi nhận trong DAG. Khi gặp thao tác hành động (action) như collect, count hoặc save, Spark才会 thực sự tính toán toàn bộ DAG. Điều này cho phép Spark tối ưu kế hoạch thực thi toàn cục \cite{spark_sql}.
+\end{itemize}
+
+Spark hỗ trợ bốn chế độ triển khai: Spark Standalone, Apache YARN, Mesos, và Kubernetes (từ phiên bản 3.0) \cite{spark_official}.
+
+\end{document}
