@@ -73,7 +73,7 @@ Spark hỗ trợ bốn chế độ triển khai: Spark Standalone, Apache YARN, 
 
 
 \section{Redis}
-Redis (Remote Dictionary Server) là hệ thống lưu trữ dữ liệu dạng key-value trong bộ nhớ (in-memory), được phát triển bởi Salvatore Sanfilippo từ năm 2009 \cite{redis_wikipedia}. Redis ban đầu được tạo ra để giải quyết bài toán mở rộng hạn chế của các hệ quản trị cơ sở dữ liệu truyền thống khi xử lý các loại workload có tính truy cập ngẫu nhiên cao \cite{redis_wikipedia}. Nhờ lưu trữ toàn bộ dữ liệu trên RAM và thiết kế đơn luồng (single-threaded), Redis đạt được độ trễ rất thấp cho cả thao tác đọc và ghi, phù hợp với các trường hợp sử dụng đòi hỏi phản hồi nhanh \cite{redis_official,redis_wikipedia}.
+Redis (Remote Dictionary Server) là hệ thống lưu trữ dữ liệu dạng key-value trong bộ nhớ (in-memory). Redis ban đầu được tạo ra để giải quyết bài toán mở rộng hạn chế của các hệ quản trị cơ sở dữ liệu truyền thống khi xử lý các loại workload có tính truy cập ngẫu nhiên cao \cite{redis_wikipedia}. Nhờ lưu trữ toàn bộ dữ liệu trên RAM và thiết kế đơn luồng (single-threaded), Redis đạt được độ trễ rất thấp cho cả thao tác đọc và ghi, phù hợp với các trường hợp sử dụng đòi hỏi phản hồi nhanh \cite{redis_official,redis_wikipedia}.
 
 \subsection{Các kiểu dữ liệu và tính năng chính}
 Redis hỗ trợ nhiều kiểu dữ liệu phức tạp ngoài string thuần túy, cho phép thao tác trực tiếp trên cấu trúc dữ liệu phía server thay vì chỉ trả về giá trị đơn thuần \cite{redis_official,redis_definitive}:
@@ -109,7 +109,7 @@ Nhược điểm của Redis: do lưu trữ hoàn toàn trên RAM nên chi phí 
 
 
 \section{FastAPI}
-FastAPI là một web framework dành cho Python, được phát triển bởi Sebastián Ramírez và phát hành lần đầu năm 2018 \cite{fastapi_wikipedia}. FastAPI được thiết kế để xây dựng các API HTTP với hiệu suất cao, tốc độ phát triển nhanh, và phù hợp cho môi trường production \cite{fastapi_official}. Framework này sử dụng Python type hints để khai báo tham số, request body, và response; tự động sinh tài liệu OpenAPI và cung cấp giao diện API tương tác (Swagger UI tại /docs và ReDoc tại /redoc) mà không cần cấu hình thêm \cite{fastapi_official,fastapi_wikipedia}. FastAPI được xây dựng dựa trên hai thư viện nền tảng: Starlette cho phần web (ASGI) và Pydantic cho phần xác thực dữ liệu (data validation, serialization) \cite{fastapi_official}.
+FastAPI là một web framework dành cho Python, được thiết kế để xây dựng các API HTTP với hiệu suất cao, tốc độ phát triển nhanh, và phù hợp cho môi trường production \cite{fastapi_official}. Framework này sử dụng Python type hints để khai báo tham số, request body, và response; tự động sinh tài liệu OpenAPI và cung cấp giao diện API tương tác (Swagger UI tại /docs và ReDoc tại /redoc) mà không cần cấu hình thêm \cite{fastapi_official,fastapi_wikipedia}. FastAPI được xây dựng dựa trên hai thư viện nền tảng: Starlette cho phần web (ASGI) và Pydantic cho phần xác thực dữ liệu (data validation, serialization) \cite{fastapi_official}.
 
 FastAPI hỗ trợ đầy đủ các phương thức HTTP: GET, POST, PUT, DELETE, PATCH, OPTIONS. Ngoài ra, framework hỗ trợ WebSocket cho giao tiếp song công (full-duplex), Background Tasks cho xử lý bất đồng bộ sau khi trả response, và GraphQL thông qua tích hợp với Strawberry \cite{fastapi_official,fastapi_wikipedia}.
 
@@ -117,7 +117,7 @@ FastAPI dựa trên ASGI (Asynchronous Server Gateway Interface) - một chuẩn
 
 Kiến trúc của FastAPI tận dùng Pydantic để định nghĩa cấu trúc dữ liệu qua Python type hints. Khi một request đến, Pydantic tự động xác thực dữ liệu đầu vào, chuyển đổi từ JSON sang các kiểu Python tương ứng, và serialize dữ liệu đầu ra trở lại JSON - toàn bộ chỉ với một khai báo duy nhất \cite{fastapi_official}. Hệ thống Dependency Injection cho phép khai báo các thành phần phụ thuộc (database session, authentication, logging) như tham số của endpoint; Framework tự động resolve và inject các dependency này cho mỗi request, hỗ trợ cleanup sau khi request hoàn tất qua cơ chế yield \cite{fastapi_official,fastapi_wikipedia}.
 
-Theo benchmark của TechEmpower, FastAPI đạt hiệu suất thuộc hàng top trong số các Python framework, ngang hàng với NodeJS và Go, chỉ thấp hơn Starlette và Uvicorn (vì FastAPI sử dụng chính các thư viện này) \cite{fastapi_official}. Hiệu suất cao đến từ kiến trúc async thuần túy và khả năng xử lý đồng thời nhiều request trên một event loop đơn luồng \cite{fastapi_wikipedia}. FastAPI giảm thiểu code lặp bằng cách khai báo kiểu dữ liệu một lần và nhận được nhiều tính năng cùng lúc: xác thực, chuyển đổi, sinh tài liệu OpenAPI, và hỗ trợ IDE \cite{fastapi_official}. Framework được sử dụng trong thực tế bởi nhiều tổ chức lớn như Microsoft (cho các dịch vụ ML), Uber (cho Ludwig - nền tảng ML), Netflix (cho Dispatch - framework quản lý khủng hoảng), và Cisco \cite{fastapi_official}.
+Theo benchmark của TechEmpower, FastAPI đạt hiệu suất thuộc hàng top trong số các Python framework, ngang hàng với NodeJS và Go, chỉ thấp hơn Starlette và Uvicorn (vì FastAPI sử dụng chính các thư viện này) \cite{fastapi_official}. Hiệu suất cao đến từ kiến trúc async thuần túy và khả năng xử lý đồng thời nhiều request trên một event loop đơn luồng \cite{fastapi_wikipedia}. FastAPI giảm thiểu code lặp bằng cách khai báo kiểu dữ liệu một lần và nhận được nhiều tính năng cùng lúc: xác thực, chuyển đổi, sinh tài liệu OpenAPI, và hỗ trợ IDE \cite{fastapi_official}. Framework được xây dựng dựa trên hai thư viện nền tảng: Starlette cho phần web (ASGI) và Pydantic cho phần xác thực dữ liệu (data validation, serialization) \cite{fastapi_official}.
 
 Ưu điểm: hiệu suất cao, tự động sinh OpenAPI docs, xác thực dữ liệu tự động qua Pydantic, hỗ trợ async/await, dependency injection mạnh mẽ, hỗ trợ WebSocket và background tasks.
 
@@ -127,7 +127,7 @@ Nhược điểm: là một framework trẻ (ra mắt 2018) nên hệ sinh thái
 \section{PostgreSQL}
 PostgreSQL là hệ quản trị cơ sở dữ liệu quan hệ đối tượng (object relational database management system - RDBMS) mã nguồn mở, nhấn mạnh tính mở rộng (extensibility) và tuân thủ chuẩn SQL \cite{postgresql_wikipedia}. PostgreSQL hỗ trợ đầy đủ các tính chất ACID (Atomicity, Consistency, Isolation, Durability - nguyên tử, nhất quán, cô lập, bền vững) cho mỗi transaction, đồng thời cung cấp các tính năng nâng cao như trigger, stored procedure (thủ tục lưu trữ), view, materialized view (view vật chất), và foreign key (khóa ngoại) \cite{postgresql_wikipedia,postgresql_official}.
 
-PostgreSQL được phát triển từ dự án Ingres tại Đại học California, Berkeley, ban đầu mang tên POSTGRES và đổi tên thành PostgreSQL vào năm 1996 để phản ánh việc hỗ trợ SQL \cite{postgresql_wikipedia}. Phiên bản hiện tại là 18.x, nổi bật với việc hỗ trợ asynchronous I/O (AIO) cho phép thực hiện các tác vụ I/O (vào-ra) đồng thời \cite{postgresql_official}.
+Phiên bản hiện tại là 18.x, nổi bật với việc hỗ trợ asynchronous I/O (AIO) cho phép thực hiện các tác vụ I/O (vào-ra) đồng thời \cite{postgresql_official}.
 
 PostgreSQL quản lý concurrency (xử lý đồng thời) thông qua MVCC (Multiversion Concurrency Control - kiểm soát tương tranh đa phiên bản), cho phép mỗi transaction có một "snapshot" riêng (một bức ảnh lưu trạng thái hiện tại của database) của database, loại bỏ phần lớn nhu cầu đọc khóa (read locks) \cite{postgresql_wikipedia}. Hệ thống cung cấp bốn mức độ cô lập transaction: Read Uncommitted, Read Committed, Repeatable Read và Serializable, và hỗ trợ serializability đầy đủ qua phương pháp SSI (Serializable Snapshot Isolation) \cite{postgresql_wikipedia}.
 
@@ -138,6 +138,54 @@ PostgreSQL hỗ trợ nhiều kiểu dữ liệu phong phú bao gồm JSON/JSONB
 Ưu điểm: mã nguồn mở với giấy phép PostgreSQL cho phép sử dụng tự do, tuân thủ chuẩn SQL cao, hỗ trợ nhiều kiểu dữ liệu phức tạp, MVCC giúp xử lý đồng thời hiệu quả mà không cần read locks, và khả năng mở rộng cao thông qua user-defined types và index methods \cite{postgresql_wikipedia,postgresql_official}.
 
 Nhược điểm: hiệu suất trên các workload read-heavy có thể cần tuning đặc biệt khi dưới tải write nặng do đặc thù MVCC, và multi-master replication đồng bộ không được tích hợp sẵn trong core \cite{postgresql_wikipedia}.
+
+
+\section{Streamlit}
+Streamlit là một framework mã nguồn mở viết bằng Python, được thiết kế để giúp các nhà khoa học dữ liệu và kỹ sư AI/ML nhanh chóng tạo ra các ứng dụng web dữ liệu chỉ với vài dòng code thuần Python, không yêu cầu kinh nghiệm về front-end \cite{streamlit_official}.
+
+Nguyên tắc cốt lõi của Streamlit là khai báo widget (thành phần giao diện) tương đương với khai báo biến - không cần viết backend, định nghĩa route, xử lý HTTP request, hay viết HTML/CSS/JavaScript \cite{streamlit_official}. Mỗi khi file Python được lưu, ứng dụng tự động cập nhật ngay (hot reload), cho phép lập trình viên thấy kết quả tức thì trong quá trình phát triển. API của Streamlit rất đơn giản: chỉ cần import streamlit as st và sử dụng các hàm như st.write(), st.line\_chart(), st.dataframe() \cite{streamlit_official}.
+
+Streamlit tương thích với hầu hết các thư viện khoa học dữ liệu phổ biến bao gồm Pandas, NumPy, Matplotlib, Plotly, Scikit-learn, TensorFlow, PyTorch, Bokeh, Altair, OpenCV và Vega-Lite \cite{streamlit_official}. Ngoài ra, Streamlit Components cho phép cộng đồng xây dựng và chia sẻ các thành phần tùy chỉnh mở rộng khả năng của framework.
+
+Ưu điểm: tốc độ phát triển nhanh, API đơn giản, không yêu cầu front-end, hot reload tự động, tương thích rộng với các thư viện Python data science, triển khai dễ dàng \cite{streamlit_official}.
+
+Nhược điểm: không phù hợp với các ứng dụng cần giao diện người dùng phức tạp hoặc tùy chỉnh cao, framework thiên về data app chứ không phải general-purpose web framework, và các component mặc định có giới hạn về mặt thiết kế \cite{streamlit_official}.
+
+
+\section{Docker}
+Docker là nền tảng mã nguồn mở cho phép đóng gói ứng dụng và các phụ thuộc của nó vào container - một đơn vị chuẩn hóa chứa mọi thứ cần thiết để chạy phần mềm \cite{docker_official,docker_wikipedia}. Container được phát triển từ công nghệ cgroups và namespace của nhân Linux, cho phép cô lập tiến trình (process isolation) mà không cần máy ảo (virtual machine) riêng biệt \cite{docker_primer}.
+
+Docker giải quyết vấn đề "works on my machine" bằng cách đảm bảo môi trường chạy nhất quán từ giai đoạn phát triển (development), kiểm thử (testing) đến triển khai (production) \cite{docker_official}. Trước Docker, việc triển khai ứng dụng phụ thuộc nhiều vào môi trường máy chủ, dẫn đến xung đột thư viện và phiên bản. Với container, ứng dụng được cô lập hoàn toàn: chỉ cần cài đặt Docker Engine là có thể chạy bất kỳ container nào, bất kể hệ điều hành bên dưới \cite{docker_primer,docker_wikipedia}.
+
+\subsection{Kiến trúc cơ bản của Docker}
+Kiến trúc của Docker gồm ba thành phần chính \cite{docker_official}:
+
+\begin{itemize}
+    \item \textbf{Docker Daemon (dockerd):} Tiến trình nền (background process) chạy trên máy chủ, chịu trách nhiệm quản lý vòng đời container (tạo, chạy, dừng), xây dựng image, quản lý network và volume. Docker Daemon lắng nghe các API request từ Docker Client.
+
+    \item \textbf{Docker Client:} Giao diện dòng lệnh (CLI) mà người dùng tương tác, ví dụ các lệnh docker build, docker run, docker pull. Docker Client giao tiếp với Daemon thông qua REST API \cite{docker_official}.
+
+    \item \textbf{Registry (kho chứa image):} Nơi lưu trữ và phân phối Docker image. Docker Hub là registry công cộng mặc định, chứa hàng nghìn image sẵn có như ubuntu, python, postgres. Người dùng cũng có thể tự xây dựng private registry \cite{docker_official,docker_primer}.
+\end{itemize}
+
+\subsection{Image và Container}
+Docker Image là một template chỉ đọc (read-only template) chứa hệ điều hành gốc, mã ứng dụng, thư viện, và các cấu hình cần thiết. Image được xây dựng từ Dockerfile - tệp cấu hình khai báo từng bước để tạo nên image \cite{docker_official,docker_primer}.
+
+Docker Container là một instance đang chạy (running instance) của một image. Nhiều container có thể chạy từ cùng một image mà không ảnh hưởng lẫn nhau, vì mỗi container có filesystem, network và process space riêng biệt \cite{docker_official}. Container được tạo bằng lệnh docker run; có thể dừng bằng docker stop và xóa bằng docker rm. Lệnh docker ps liệt kê các container đang chạy \cite{docker_wikipedia}.
+
+Cơ chế layered filesystem cho phép các image chia sẻ chung các lớp (layer) dữ liệu, giảm đáng kể dung lượng lưu trữ và thời gian build. Khi một container thay đổi file, Docker sử dụng kỹ thuật copy-on-write: file được sao chép vào writable layer của container, tách biệt khỏi image gốc \cite{docker_primer}.
+
+\subsection{Dockerfile và quy trình đóng gói}
+Dockerfile là tệp văn bản chứa các instruction để tự động xây dựng image. Các instruction quan trọng bao gồm: FROM (image gốc), RUN (chạy lệnh trong quá trình build), COPY/ADD (sao chép tệp vào image), CMD/ENTRYPOINT (lệnh chạy khi container khởi động), EXPOSE (khai báo port), ENV (thiết lập biến môi trường) \cite{docker_official,docker_primer}.
+
+Docker image được build theo từng lớp, mỗi instruction tạo ra một lớp mới. Docker cache các lớp này; khi thay đổi Dockerfile, chỉ các lớp phía sau thay đổi mới được rebuild, giảm đáng kể thời gian build \cite{docker_official}.
+
+\subsection{Docker Compose}
+Docker Compose là công cụ cho phép định nghĩa và chạy các ứng dụng đa container (multi-container) bằng một tệp cấu hình YAML duy nhất \cite{docker_official,docker_primer}. Thay vì chạy nhiều lệnh docker run riêng lẻ, Docker Compose cho phép khai báo tất cả container, network, và volume trong một tệp docker-compose.yml, sau đó khởi động hoặc dừng toàn bộ hệ thống bằng một lệnh duy nhất (docker compose up / docker compose down). Điều này đặc biệt hữu ích khi phát triển các hệ thống phân tán với nhiều service phụ thuộc lẫn nhau \cite{docker_official}.
+
+Ưu điểm của Docker: tính nhất quán giữa các môi trường (phát triển, kiểm thử, triển khai), cô lập hoàn toàn giữa các ứng dụng, khởi động nhanh (tính bằng giây so với phút của máy ảo), sử dụng tài nguyên hiệu quả hơn máy ảo nhờ dùng chung nhân, và hệ sinh thái phong phú với hàng nghìn image có sẵn trên Docker Hub \cite{docker_official,docker_primer}.
+
+Nhược điểm của Docker: container dùng chung nhân của hệ điều hành chủ nên có bề mặt bảo mật chung, không phù hợp với các ứng dụng cần độc lập mạnh (như cơ sở dữ liệu multi-tenant), và yêu cầu quản lý cẩn thận về mạng và lưu trữ để tránh xung đột giữa các container \cite{docker_wikipedia}.
 
 
 \end{document}
