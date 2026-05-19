@@ -52,7 +52,7 @@
 
 % ===================================================
 
-\renewcommand{\bibname}{Danh_sach_tai_lieu_tham_khao} 
+\renewcommand{\bibname}{Danh_sach_tai_lieu_tham_khao}
 \usepackage[backend=bibtex,style=ieee]{biblatex}  %backend=biber is 'better'
 
 \renewcommand\appendixname{PHỤ LỤC}
@@ -60,7 +60,7 @@
 \renewcommand\appendixtocname{PHỤ LỤC}
 
 
-\addbibresource{Danh_sach_tai_lieu_tham_khao.bib} % chèn file chứa danh mục tài liệu tham khảo vào 
+\addbibresource{Danh_sach_tai_lieu_tham_khao.bib} % chèn file chứa danh mục tài liệu tham khảo vào
 
 \include{lstlisting} % Phần này cho phép chèn code và formatting code như C, C++, Python
 
@@ -83,7 +83,7 @@
 % ===================================================
 \titleformat{\chapter}[hang]{\centering\bfseries}{CHƯƠNG \thechapter.\ }{0pt}{}[]
 
-\titleformat 
+\titleformat
     {\chapter} % command
     [hang] % shape
     {\centering\bfseries} % format
@@ -141,7 +141,7 @@
 \hypersetup{pdfborder = {0 0 0}} %
 \hypersetup{pdftitle={\TITLE},
 	pdfauthor={\AUTHOR}}
-	
+
 \usepackage[all]{hypcap} % Cho phép tham chiếu chính xác đến hình ảnh và bảng biểu
 
 \graphicspath{{figures/}{../figures/}} % Thư mục chứa các hình ảnh
@@ -174,21 +174,21 @@
 \definecolor{backcolour}{rgb}{0.95,0.95,0.92}
 
 \lstdefinestyle{mystyle}{
-    backgroundcolor=\color{backcolour},   
+    backgroundcolor=\color{backcolour},
     commentstyle=\color{codegreen},
     keywordstyle=\color{magenta},
     numberstyle=\tiny\color{codegray},
     stringstyle=\color{codepurple},
     basicstyle=\ttfamily\footnotesize,
-    breakatwhitespace=false,         
-    breaklines=true,                 
-    captionpos=b,                    
-    keepspaces=true,                 
-    numbers=left,                    
-    numbersep=5pt,                  
-    showspaces=false,                
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
     showstringspaces=false,
-    showtabs=false,                  
+    showtabs=false,
     tabsize=2
 }
 
@@ -222,14 +222,14 @@
     {}         % unnumbered format
     {\titlerule*[0.3pc]{.}\contentspage}         % filler-page-format, e.g dots
 
-    
+
 \titlecontents{section}
     [0.0cm]             % left margin
     {\vspace{0.3cm}}                  % above code
     {\thecontentslabel \ } % numbered format
     {}         % unnumbered format
     {\titlerule*[0.3pc]{.}\contentspage}         % filler-page-format, e.g dots
-    
+
 \titlecontents{subsection}
     [1.0cm]             % left margin
     {\vspace{0.3cm}}                  % above code
@@ -239,7 +239,7 @@
 
  % Tạo mục lục tự động
 \addtocontents{toc}{\protect\thispagestyle{empty}}
-\tableofcontents 
+\tableofcontents
 \thispagestyle{empty}
 \cleardoublepage
 
@@ -248,7 +248,7 @@
 \renewcommand{\listfigurename}{DANH MỤC HÌNH VẼ}
 {\let\oldnumberline\numberline
 \renewcommand{\numberline}{Hình~\oldnumberline}
-\listoffigures} 
+\listoffigures}
 % \phantomsection\addcontentsline{toc}{section}{\numberline {} DANH MỤC HÌNH VẼ}
 \newpage
 
@@ -260,7 +260,7 @@
 \listoftables}
 % \phantomsection\addcontentsline{toc}{section}{\numberline {} DANH MỤC BẢNG BIỂU}
 
-\glsaddall 
+\glsaddall
  \renewcommand*{\glossaryname}{Danh sách thuật ngữ}
 \renewcommand*{\acronymname}{DANH MỤC THUẬT NGỮ VÀ TỪ VIẾT TẮT}
 \renewcommand*{\entryname}{Thuật ngữ}
@@ -352,7 +352,7 @@
     {}         % unnumbered format
     {\titlerule*[0.3pc]{.}\contentspage}         % filler-page-format, e.g dots
 % \chapter{HƯỚNG DẪN VIẾT BÀI TẬP LỚN}
-% \subfile{Chuong/Phu_luc_A}
+\subfile{Chuong/Phu_luc_A}
 \newpage
 
 \end{document}
