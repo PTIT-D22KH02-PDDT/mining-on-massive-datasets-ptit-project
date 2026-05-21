@@ -159,3 +159,23 @@ CREATE INDEX IF NOT EXISTS idx_spark_metrics_timestamp ON spark_metrics(timestam
 CREATE INDEX IF NOT EXISTS idx_popular_items_composite ON popular_items(event_type, time_scope, count DESC);
 CREATE INDEX IF NOT EXISTS idx_online_metrics_model ON online_metrics(model_used);
 CREATE INDEX IF NOT EXISTS idx_online_metrics_name ON online_metrics(metric_name);
+
+-- 6.2 Additional Indexes for Query Patterns (Phase 6.2)
+--------------------------------------------------------------------------------
+-- For latency history and cleanup
+CREATE INDEX IF NOT EXISTS idx_predictions_log_created_at ON predictions_log(created_at DESC);
+
+-- For model usage breakdown
+CREATE INDEX IF NOT EXISTS idx_predictions_log_model_used ON predictions_log(model_used, created_at DESC);
+
+-- For hourly stats query
+CREATE INDEX IF NOT EXISTS idx_stats_hourly_window_start ON stats_hourly(window_start DESC);
+
+-- For online metrics trend
+CREATE INDEX IF NOT EXISTS idx_online_metrics_created_at ON online_metrics(metric_name, created_at DESC);
+
+-- For cleanup job
+CREATE INDEX IF NOT EXISTS idx_collected_events_created_at ON collected_events(created_at DESC);
+
+-- For online_hits cleanup
+CREATE INDEX IF NOT EXISTS idx_online_hits_timestamp ON online_hits(timestamp DESC);

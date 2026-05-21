@@ -67,9 +67,11 @@ kafka_producer = None
 
 TOP_K = 20
 
-# --- Batch DB Write Config (Phase 2.3) ---
+# --- Buffer Config (Phase 2.3 + 6.1 + 9.1) ---
 REDIS_EVENT_BUFFER = "buffer:collected_events"
 REDIS_PREDICTION_BUFFER = "buffer:predictions"
+BUFFER_TTL_SECONDS = 3600  # 1 hour (Phase 6.1: prevent OOM)
+MAX_BUFFER_SIZE = 10000    # Max items per buffer (Phase 6.1: prevent unbounded growth)
 BATCH_SIZE = int(os.getenv("DB_BATCH_SIZE", "50"))
 FLUSH_INTERVAL = int(os.getenv("DB_FLUSH_INTERVAL", "5"))
 
@@ -404,9 +406,11 @@ async def receive_event(event: EventRequest, request: Request, background_tasks:
     else:
         logger.warning(f"[{corr_id}] kafka_producer is None, skipping Kafka publish")
 
-    # 4. Buffer event to Redis (Phase 2.3 batch writes)
+    # 4. Buffer event to Redis (Phase 2.3 batch writes + 6.1 TTL protection)
     event_data = json.dumps({"session_id": event.session_id, "aid": event.aid, "type": event.type, "ts": ts})
     session_mgr.redis.rpush(REDIS_EVENT_BUFFER, event_data)
+    session_mgr.redis.ltrim(REDIS_EVENT_BUFFER, -MAX_BUFFER_SIZE, -1)  # Phase 6.1: Max length
+    session_mgr.redis.expire(REDIS_EVENT_BUFFER, BUFFER_TTL_SECONDS)    # Phase 6.1: TTL
 
     latency_ms = (time.time() - start_time) * 1000
 
@@ -421,14 +425,18 @@ async def receive_event(event: EventRequest, request: Request, background_tasks:
         "latency_ms": latency_ms
     })
     session_mgr.redis.rpush(REDIS_PREDICTION_BUFFER, pred_data)
+    session_mgr.redis.ltrim(REDIS_PREDICTION_BUFFER, -MAX_BUFFER_SIZE, -1)  # Phase 6.1: Max length
+    session_mgr.redis.expire(REDIS_PREDICTION_BUFFER, BUFFER_TTL_SECONDS)    # Phase 6.1: TTL
 
-    # 6. Online hit tracking (buffer to Redis)
+# 6. Online hit tracking (buffer to Redis + 6.1 TTL protection)
     if event.type in ["carts", "orders"]:
         all_recs = set(recommendations.get("clicks", []) + recommendations.get("carts", []) + recommendations.get("orders", []))
         is_hit = event.aid in all_recs
         session_mgr.redis.rpush("buffer:online_hits", json.dumps({
             "session_id": event.session_id, "aid": event.aid, "event_type": event.type, "is_hit": is_hit
         }))
+        session_mgr.redis.ltrim("buffer:online_hits", -MAX_BUFFER_SIZE, -1)
+        session_mgr.redis.expire("buffer:online_hits", BUFFER_TTL_SECONDS)
 
         # 5.1: Calculate and log Recall@K, NDCG@K, MRR@K
         ground_truth = [event.aid]
@@ -445,6 +453,8 @@ async def receive_event(event: EventRequest, request: Request, background_tasks:
             "event_type": event.type,
             "metrics": eval_metrics,
         }))
+        session_mgr.redis.ltrim("buffer:online_metrics", -MAX_BUFFER_SIZE, -1)
+        session_mgr.redis.expire("buffer:online_metrics", BUFFER_TTL_SECONDS)
 
     logger.info(f"[{corr_id}] Response: model={model_used} latency={latency_ms:.1f}ms")
 
