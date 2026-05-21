@@ -29,6 +29,11 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2g
 
   kafka-ui:
     image: provectuslabs/kafka-ui
@@ -50,6 +55,12 @@ services:
     command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:
@@ -70,6 +81,12 @@ services:
       - ./postgres-init/02_cleanup_old_data.sql:/docker-entrypoint-initdb.d/02_cleanup_old_data.sql
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-otto} -d ${POSTGRES_DB:-otto_recommender}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -95,7 +112,7 @@ services:
       kafka:
         condition: service_healthy
       postgres:
-        condition: service_started
+        condition: service_healthy
     environment:
       - POSTGRES_HOST=postgres
       - POSTGRES_USER=${POSTGRES_USER:-otto}
@@ -121,9 +138,9 @@ services:
       kafka:
         condition: service_healthy
       postgres:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=${REDIS_PORT:-6379}
@@ -136,6 +153,20 @@ services:
       - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request, sys; r=urllib.request.urlopen('http://localhost:8000/api/health'); sys.exit(0 if r.status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2g
+        reservations:
+          cpus: '0.5'
+          memory: 512m
 
   dashboard:
     image: ${DOCKER_USERNAME:-otto}/otto-dashboard:${DOCKER_TAG:-latest}
@@ -144,11 +175,26 @@ services:
     ports:
       - "8501:8501"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     environment:
       - API_URL=http://api:8000
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost',8501)); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1g
+        reservations:
+          cpus: '0.25'
+          memory: 256m
 
   spark-streaming:
     image: ${DOCKER_USERNAME:-otto}/otto-spark-streaming:${DOCKER_TAG:-latest}
@@ -158,7 +204,7 @@ services:
       kafka:
         condition: service_healthy
       postgres:
-        condition: service_started
+        condition: service_healthy
       setup-jobs:
         condition: service_completed_successfully
     environment:
@@ -173,6 +219,14 @@ services:
       - ./datasets:/opt/app/datasets
     networks:
       - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8g
+        reservations:
+          cpus: '1.0'
+          memory: 2g
 
   # === Data Retention Cleanup (Phase 6.1) ===
   cleanup:
