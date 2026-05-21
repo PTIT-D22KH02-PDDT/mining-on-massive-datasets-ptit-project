@@ -3,8 +3,13 @@ import pandas as pd
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
+import json
+import logging
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="OTTO Recommender Pipeline Dashboard",
@@ -18,19 +23,52 @@ import os
 API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
 st.sidebar.caption(f"Connected to API: {API_URL}")
 
+if "last_updated" not in st.session_state:
+    st.session_state.last_updated = None
+
 
 def get_stats():
     try:
-        resp = requests.get(f"{API_URL}/api/stats", timeout=2)
+        resp = requests.get(f"{API_URL}/api/stats", timeout=5)
+        resp.raise_for_status()
+        st.session_state.last_updated = datetime.now()
         return resp.json()
-    except:
+    except requests.exceptions.Timeout:
+        logger.error("API stats request timeout")
         return None
+    except requests.exceptions.ConnectionError:
+        logger.error("Cannot connect to API for stats")
+        return None
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"API stats HTTP error: {e}")
+        return None
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON response from API stats")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error fetching stats: {e}")
+        return None
+
 
 def get_health():
     try:
-        resp = requests.get(f"{API_URL}/api/health", timeout=2)
+        resp = requests.get(f"{API_URL}/api/health", timeout=5)
+        resp.raise_for_status()
         return resp.json()
-    except:
+    except requests.exceptions.Timeout:
+        logger.error("API health request timeout")
+        return None
+    except requests.exceptions.ConnectionError:
+        logger.error("Cannot connect to API for health")
+        return None
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"API health HTTP error: {e}")
+        return None
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON response from API health")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error fetching health: {e}")
         return None
 
 st.title("OTTO Recommender Hub")
@@ -69,11 +107,23 @@ st.sidebar.markdown("---")
 if st.sidebar.button("Manual Refresh"):
     st.rerun()
 
-# Global Data Fetching
-stats = get_stats()
+# Data Freshness Indicator
+if st.session_state.last_updated:
+    ago = (datetime.now() - st.session_state.last_updated).total_seconds()
+    if ago < 10:
+        st.sidebar.success(f"Data fresh ({ago:.0f}s ago)")
+    elif ago < 30:
+        st.sidebar.warning(f"Data stale ({ago:.0f}s ago)")
+    else:
+        st.sidebar.error(f"Data outdated ({ago:.0f}s ago)")
+else:
+    st.sidebar.info("No data fetched yet")
+
+# Lazy-Load Per Tab: each view fetches its own data
 
 # --- View: Dashboard Overview ---
 if view == "Dashboard Overview":
+    stats = get_stats()
     if stats:
         # 1. Key Metrics (Combined: 5 columns including Hit Rate)
         m1, m2, m3, m4, m5 = st.columns(5)
@@ -136,6 +186,7 @@ if view == "Dashboard Overview":
 # --- View: Advanced Analytics ---
 elif view == "Advanced Analytics":
     st.subheader("Advanced Analytics")
+    stats = get_stats()
     if stats:
         t1, t2, t3, t4, t5 = st.tabs(["Conversion Funnel", "Model Performance", "Hourly Traffic", "Session Insights", "Online Evaluation"])
         
@@ -249,6 +300,7 @@ elif view == "Advanced Analytics":
 # --- View: Anomaly Detection ---
 elif view == "Anomaly Detection":
     st.subheader("Real-time Anomaly Detection")
+    stats = get_stats()
     if stats:
         anomalies = stats.get("anomaly_logs", [])
         if anomalies:
@@ -295,6 +347,7 @@ elif view == "Recommendation Demo":
 # --- View: Spark Performance ---
 elif view == "Spark Performance":
     st.subheader("Spark Streaming Metrics")
+    stats = get_stats()
     if stats:
         spark = stats.get("spark_metrics", [])
         if spark:
@@ -344,6 +397,7 @@ elif view == "Spark Performance":
 # --- View: Model Evaluation ---
 elif view == "Model Evaluation":
     st.subheader("Model Quality Metrics")
+    stats = get_stats()
     if stats:
         online_metrics_summary = stats.get("online_metrics_summary", [])
         online_metrics_trend = stats.get("online_metrics_trend", [])
@@ -426,6 +480,7 @@ elif view == "Model Evaluation":
 # --- View: Item Insights ---
 elif view == "Item Insights":
     st.subheader("Item Conversion Insights")
+    stats = get_stats()
     if stats:
         item_insights = stats.get("item_insights", [])
         if item_insights:
