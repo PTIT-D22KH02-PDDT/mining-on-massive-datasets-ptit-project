@@ -211,6 +211,9 @@ elif view == "Advanced Analytics":
             if hourly:
                 df_h = pd.DataFrame(hourly)
                 df_h['window_start'] = pd.to_datetime(df_h['window_start'])
+                # Deduplicate: keep latest row per window (streaming writes cumulative updates)
+                df_h = df_h.sort_values('window_start').drop_duplicates(subset='window_start', keep='last')
+                df_h = df_h.sort_values('window_start')
                 st.plotly_chart(px.area(df_h, x='window_start', y=['total_clicks', 'total_carts', 'total_orders'], template="plotly_dark"), use_container_width=True)
             else:
                 st.info("No hourly traffic data.")

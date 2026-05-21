@@ -13,15 +13,13 @@ from pyspark.sql.functions import (
     when, min, max, sum as spark_sum, round as spark_round, expr, lit, avg,
     current_timestamp
 )
-from pyspark.sql.types import StructType, StructField, LongType, StringType, ArrayType
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-# Use project root to find dataset
 root_dir = Path(__file__).resolve().parents[2]
-DATA_PATH = str(root_dir / "datasets" / "otto-recommender-system" / "test.jsonl")
+DATA_PATH = str(root_dir / "datasets" / "otto" / "train_sessions.parquet")
 
 PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
 PG_PORT = os.getenv("POSTGRES_PORT", "5432")
@@ -46,38 +44,18 @@ def main():
     spark.sparkContext.setLogLevel("WARN")
     logger.info("Spark Session Initialized.")
 
-    # 1. Define schema & Load Data
-    event_schema = StructType([
-        StructField("aid", LongType(), True),
-        StructField("ts", LongType(), True),
-        StructField("type", StringType(), True)
-    ])
-    
-    schema = StructType([
-        StructField("session", LongType(), True),
-        StructField("events", ArrayType(event_schema), True)
-    ])
-
     logger.info(f"Reading data from {DATA_PATH}...")
     if not Path(DATA_PATH).exists():
-        # Fallback to local test file if main one is missing
-        DATA_PATH_ALT = str(root_dir / "datasets" / "test.jsonl")
-        if Path(DATA_PATH_ALT).exists():
-            logger.info(f"Main path missing, using fallback: {DATA_PATH_ALT}")
-            df_path = DATA_PATH_ALT
-        else:
-            logger.error(f"Data path {DATA_PATH} does not exist.")
-            sys.exit(1)
-    else:
-        df_path = DATA_PATH
+        logger.error(f"Data path {DATA_PATH} does not exist.")
+        sys.exit(1)
 
     try:
-        raw_df = spark.read.json(df_path, schema=schema)
+        raw_df = spark.read.parquet(DATA_PATH)
     except Exception as e:
         logger.error(f"Cannot read data: {e}")
         sys.exit(1)
 
-    # 2. Flatten events
+    # Flatten events (schema embedded in parquet)
     events_df = raw_df.select(
         col("session").alias("session_id"),
         explode("events").alias("event")
@@ -175,18 +153,17 @@ def main():
     funnel_stats_df = funnel_stats_df.withColumn("computed_at", current_timestamp())
 
     try:
-        # Table 1: funnel_stats (Main Dashboard Funnel)
+        # Table 1: funnel_stats (append-only for historical trend tracking)
         funnel_stats_df.write \
             .format("jdbc") \
             .option("url", PG_URL) \
             .option("dbtable", "funnel_stats") \
-            .option("truncate", "true") \
             .options(**PG_PROPERTIES) \
-            .mode("overwrite") \
+            .mode("append") \
             .save()
         logger.info("Saved to 'funnel_stats'")
 
-        # Table 2: stats_sessions (Session Distribution)
+        # Table 2: stats_sessions (overwrite — only 3 rows: buyer/cart_abandoner/browse_only)
         stats_sessions_df.write \
             .format("jdbc") \
             .option("url", PG_URL) \
@@ -197,7 +174,7 @@ def main():
             .save()
         logger.info("Saved to 'stats_sessions'")
         
-        # Table 3: advanced_funnel_stats
+        # Table 3: advanced_funnel_stats (overwrite — batch baseline only)
         advanced_funnel_df.write \
             .format("jdbc") \
             .option("url", PG_URL) \

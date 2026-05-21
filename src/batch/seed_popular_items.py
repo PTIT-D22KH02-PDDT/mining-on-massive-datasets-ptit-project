@@ -12,14 +12,13 @@ from pyspark.sql import SparkSession, Window
 from pyspark.sql.functions import (
     col, explode, count, row_number, lit
 )
-from pyspark.sql.types import StructType, StructField, LongType, StringType, ArrayType
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 root_dir = Path(__file__).resolve().parents[2]
-DATA_PATH = str(root_dir / "datasets" / "otto-recommender-system" / "test.jsonl")
+DATA_PATH = str(root_dir / "datasets" / "otto" / "train_sessions.parquet")
 TOP_K = 100
 
 PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
@@ -44,30 +43,18 @@ def main():
     spark.sparkContext.setLogLevel("WARN")
     logger.info("Spark Session Initialized.")
 
-    # 1. Define schema & Load Data
-    event_schema = StructType([
-        StructField("aid", LongType(), True),
-        StructField("ts", LongType(), True),
-        StructField("type", StringType(), True)
-    ])
-    
-    schema = StructType([
-        StructField("session", LongType(), True),
-        StructField("events", ArrayType(event_schema), True)
-    ])
-
     logger.info(f"Reading data from {DATA_PATH}...")
     if not Path(DATA_PATH).exists():
         logger.error(f"Data path {DATA_PATH} does not exist.")
         sys.exit(1)
 
     try:
-        raw_df = spark.read.json(DATA_PATH, schema=schema)
+        raw_df = spark.read.parquet(DATA_PATH)
     except Exception as e:
         logger.error(f"Cannot read data: {e}")
         sys.exit(1)
 
-    # 2. Flatten events
+    # Flatten events (schema embedded in parquet)
     events_df = raw_df.select(
         explode("events").alias("event")
     ).select(

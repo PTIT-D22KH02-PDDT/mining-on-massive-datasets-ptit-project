@@ -27,6 +27,9 @@ KAFKA_TOPIC = "user-events"
 CHECKPOINT_LOCATION = "/tmp/spark-checkpoints/otto-streaming"
 CHECKPOINT_RETENTION_DAYS = 3
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
+logger = logging.getLogger(__name__)
+
 PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
 PG_PORT = os.getenv("POSTGRES_PORT", "5432")
 PG_DB = os.getenv("POSTGRES_DB", "otto_recommender")
@@ -55,6 +58,7 @@ class MetricsListener(StreamingQueryListener):
 
     def onQueryProgress(self, event):
         progress = event.progress
+        conn = None
         try:
             conn = psycopg2.connect(
                 host=PG_HOST, port=int(PG_PORT), dbname=PG_DB,
@@ -78,9 +82,13 @@ class MetricsListener(StreamingQueryListener):
                     )
                 )
             conn.commit()
-            conn.close()
         except Exception as e:
             print(f"Error logging metrics: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                conn.close()
 
     def onQueryTerminated(self, event):
         print(f"Query terminated: {event.id}")
@@ -225,9 +233,11 @@ def write_stats_items_from_rows(rows):
                         cart_to_order_rate = EXCLUDED.cart_to_order_rate,
                         last_updated = NOW()
                 """)
+        conn.commit()
         logger.info(f"stats_items: OK ({len(values)} rows)")
     except Exception as e:
         logger.error(f"Error write_stats_items: {e}")
+        conn.rollback()
     finally:
         conn.close()
 
@@ -543,7 +553,7 @@ def main():
         .format("kafka") \
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
         .option("subscribe", KAFKA_TOPIC) \
-        .option("startingOffsets", "latest") \
+        .option("startingOffsets", os.getenv("SPARK_STARTING_OFFSETS", "earliest")) \
         .load()
 
     events_df = raw_df.selectExpr("CAST(value AS STRING)") \
