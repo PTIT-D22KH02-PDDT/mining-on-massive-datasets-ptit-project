@@ -2,7 +2,8 @@
 # log_resources.sh - Ghi docker stats vao CSV lien tuc
 # Usage: ./benchmark/log_resources.sh [output_file] [interval_sec]
 
-OUTPUT="${1:-benchmark/results/docker_stats.csv}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OUTPUT="${1:-${SCRIPT_DIR}/results/docker_stats.csv}"
 INTERVAL="${2:-5}"
 
 mkdir -p "$(dirname "$OUTPUT")"

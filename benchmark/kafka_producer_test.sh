@@ -1,10 +1,11 @@
 #!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOPIC=${1:-user-events}
 NUM_RECORDS=${2:-500000}
 RECORD_SIZE=${3:-1024}
 
 TS=$(date +%Y%m%d_%H%M%S)
-RESULTS_DIR="benchmark/results"
+RESULTS_DIR="${SCRIPT_DIR}/results"
 mkdir -p "$RESULTS_DIR"
 LOG="${RESULTS_DIR}/kafka_producer_${TS}.log"
 

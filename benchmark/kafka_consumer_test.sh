@@ -1,10 +1,11 @@
 #!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOPIC=${1:-user-events}
 MESSAGES=${2:-200000}
 TIMEOUT=${3:-60000}
 
 TS=$(date +%Y%m%d_%H%M%S)
-RESULTS_DIR="benchmark/results"
+RESULTS_DIR="${SCRIPT_DIR}/results"
 mkdir -p "$RESULTS_DIR"
 LOG="${RESULTS_DIR}/kafka_consumer_${TS}.log"
 

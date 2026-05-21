@@ -3,9 +3,10 @@
 # Tu dong tong hop ket qua benchmark -> report file
 # Usage: ./benchmark/report_generator.sh [results_dir]
 
-RESULTS_DIR="${1:-benchmark/results}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RESULTS_DIR="${1:-${SCRIPT_DIR}/results}"
 TS=$(date +%Y%m%d_%H%M%S)
-REPORT="benchmark/results/report_${TS}.txt"
+REPORT="${RESULTS_DIR}/report_${TS}.txt"
 
 mkdir -p "$RESULTS_DIR"
 
