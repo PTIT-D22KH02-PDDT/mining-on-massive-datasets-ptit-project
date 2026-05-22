@@ -55,6 +55,13 @@ async def ensure_topics() -> tuple[List[str], bool]:
 
     return created, newly_created
 
+def _normalize_acks(val: Any) -> Any:
+    if isinstance(val, int) or val == "all":
+        return val
+    if val in ("0", "1", "-1"):
+        return int(val)
+    return 1
+
 class KafkaProducerService:
     """Simple wrapper for AIOKafkaProducer."""
     
@@ -64,11 +71,14 @@ class KafkaProducerService:
 
     async def start(self):
         if self._producer: return
+        producer_cfg = _kafka_cfg().get("producer", {})
         self._producer = AIOKafkaProducer(
             bootstrap_servers=self._bootstrap,
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-            acks="all",
-            enable_idempotence=True
+            acks=_normalize_acks(producer_cfg.get("acks", 1)),
+            enable_idempotence=producer_cfg.get("enable_idempotence", False),
+            linger_ms=producer_cfg.get("linger_ms", 10),
+            request_timeout_ms=producer_cfg.get("request_timeout_ms", 5000),
         )
         await self._producer.start()
 

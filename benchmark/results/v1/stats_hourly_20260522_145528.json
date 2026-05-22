@@ -1,0 +1,50 @@
+{
+  "rows": 3,
+  "data": [
+    {
+      "id": 1,
+      "window_start": "2026-05-22 07:55:00",
+      "window_end": "2026-05-22 08:00:00",
+      "total_events": 13,
+      "total_clicks": 6,
+      "total_carts": 3,
+      "total_orders": 4,
+      "total_sessions": 12,
+      "unique_sessions": 12,
+      "unique_items": 11,
+      "click_to_cart_rate": 0.5,
+      "cart_to_order_rate": 1.3333333333333333,
+      "created_at": "2026-05-22 07:57:43.157437"
+    },
+    {
+      "id": 2,
+      "window_start": "2026-05-22 07:55:00",
+      "window_end": "2026-05-22 08:00:00",
+      "total_events": 795,
+      "total_clicks": 263,
+      "total_carts": 262,
+      "total_orders": 270,
+      "total_sessions": 718,
+      "unique_sessions": 718,
+      "unique_items": 787,
+      "click_to_cart_rate": 0.9961977186311787,
+      "cart_to_order_rate": 1.0305343511450382,
+      "created_at": "2026-05-22 07:58:38.299293"
+    },
+    {
+      "id": 3,
+      "window_start": "2026-05-22 07:55:00",
+      "window_end": "2026-05-22 08:00:00",
+      "total_events": 842,
+      "total_clicks": 284,
+      "total_carts": 259,
+      "total_orders": 299,
+      "total_sessions": 683,
+      "unique_sessions": 683,
+      "unique_items": 852,
+      "click_to_cart_rate": 0.9119718309859155,
+      "cart_to_order_rate": 1.1544401544401544,
+      "created_at": "2026-05-22 07:59:23.310227"
+    }
+  ]
+}

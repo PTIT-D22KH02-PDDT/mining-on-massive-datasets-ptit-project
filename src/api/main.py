@@ -25,7 +25,7 @@ if root_dir not in sys.path:
 
 import httpx
 import pybreaker
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -35,6 +35,7 @@ from src.api.cold_start import ColdStartRecommender
 from src.serving.covisitation_recommender import CovisitationRecommender
 from src.serving.sasrec_recommender import SASRecRecommender
 from src.evaluation.metrics import recall_at_k, ndcg_at_k, mrr_at_k
+from src.core.infra.kafka_queue import KafkaMessage
 
 # --- JSON Logging Setup (Phase 2.2) ---
 class UUIDFormatter(logging.Formatter):
@@ -100,17 +101,6 @@ def call_sasrec_with_fallback(session_aids: List[int], top_k: int, request_id: s
     except pybreaker.CircuitBreakerError:
         logger.warning(f"[{request_id}] SASRec circuit OPEN — falling back to covisitation", extra={"correlation_id": request_id})
         raise
-
-
-async def _send_to_kafka(topic: str, message: dict, key: str | None = None):
-    """Helper to send to Kafka with error handling."""
-    try:
-        if not kafka_producer or not kafka_producer._producer:
-            logger.warning(f"Kafka producer not ready, skipping send to {topic}")
-            return
-        await kafka_producer.send(topic, message, key=key)
-    except Exception as e:
-        logger.error(f"Kafka send failed: {e}")
 
 
 # --- Pydantic Models ---
@@ -255,7 +245,7 @@ async def refresh_ranks_task():
 # --- Lifespan ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global session_mgr, db, cold_start, covisitation, sasrec, kafka_producer
+    global session_mgr, db, cold_start, covisitation, sasrec, kafka_producer, kafka_queue
 
     logger.info("Starting OTTO API Server...")
 
@@ -287,14 +277,31 @@ async def lifespan(app: FastAPI):
     sasrec = SASRecRecommender(remote_url=remote_url)
     logger.info(f"SASRec initialized in FORCED REMOTE mode ({remote_url})")
 
-    try:
+    kafka_producer = None
+    kafka_queue = None
+    kafka_init_task = None
+
+    async def _init_kafka_background():
+        global kafka_producer, kafka_queue
         from src.core.infra.kafka import KafkaProducerService
-        kafka_producer = KafkaProducerService()
-        await kafka_producer.start()
-        logger.info("Kafka producer connected")
-    except Exception as e:
-        logger.warning(f"Kafka not available (will skip publishing): {e}")
-        kafka_producer = None
+        from src.core.infra.kafka_queue import KafkaQueue
+        attempt = 0
+        while True:
+            try:
+                attempt += 1
+                p = KafkaProducerService()
+                await p.start()
+                q = KafkaQueue(p, maxsize=1000)
+                await q.start()
+                kafka_producer = p
+                kafka_queue = q
+                logger.info("Kafka producer + queue connected (after %d attempts)", attempt)
+                return
+            except Exception as e:
+                logger.warning("Kafka not available yet (attempt %d): %s", attempt, e)
+                await asyncio.sleep(5)
+
+    kafka_init_task = asyncio.create_task(_init_kafka_background())
 
     asyncio.create_task(flush_db_buffers_task())
     asyncio.create_task(refresh_ranks_task())
@@ -302,6 +309,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    if kafka_init_task and not kafka_init_task.done():
+        kafka_init_task.cancel()
+        try:
+            await kafka_init_task
+        except asyncio.CancelledError:
+            pass
+    if kafka_queue:
+        await kafka_queue.stop()
     if kafka_producer:
         await kafka_producer.stop()
     if db:
@@ -331,7 +346,7 @@ async def add_correlation_id(request: Request, call_next):
 
 # --- Event endpoint with batch DB writes + circuit breaker ---
 @app.post("/api/event", response_model=EventResponse)
-async def receive_event(event: EventRequest, request: Request, background_tasks: BackgroundTasks):
+async def receive_event(event: EventRequest, request: Request):
     start_time = time.time()
     corr_id = getattr(request.state, 'correlation_id', '-')
     ts = event.ts or int(time.time() * 1000)
@@ -392,19 +407,15 @@ async def receive_event(event: EventRequest, request: Request, background_tasks:
 
         session_mgr.store_recommendations(event.session_id, recommendations)
 
-    # 3. Publish to Kafka
-    if kafka_producer:
-        try:
-            background_tasks.add_task(
-                _send_to_kafka,
-                "user-events",
-                {"session_id": event.session_id, "aid": event.aid, "type": event.type, "ts": ts, "model_used": model_used},
-                key=str(event.session_id)
-            )
-        except Exception as e:
-            logger.error(f"[{corr_id}] Failed to add Kafka task: {e}")
+    # 3. Publish to Kafka via queue (non-blocking, fire-and-forget)
+    if kafka_queue:
+        kafka_queue.put_nowait(KafkaMessage(
+            topic="user-events",
+            message={"session_id": event.session_id, "aid": event.aid, "type": event.type, "ts": ts, "model_used": model_used},
+            key=str(event.session_id)
+        ))
     else:
-        logger.warning(f"[{corr_id}] kafka_producer is None, skipping Kafka publish")
+        logger.warning(f"[{corr_id}] kafka_queue is None, skipping Kafka publish")
 
     # 4. Buffer event to Redis (Phase 2.3 batch writes + 6.1 TTL protection)
     event_data = json.dumps({"session_id": event.session_id, "aid": event.aid, "type": event.type, "ts": ts})

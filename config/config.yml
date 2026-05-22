@@ -16,10 +16,10 @@ kafka:
 
   # Producer settings
   producer:
-    acks: "all"                 # "all", "1", or "0"
-    retries: 3
-    linger_ms: 10               # batch window in ms
-    enable_idempotence: true
+    acks: 1                     # 0, 1, or "all" (1 = leader ack, giảm latency)
+    linger_ms: 10               # batch window in ms, gom message trước khi gửi
+    enable_idempotence: false   # không cần idempotence với acks=1
+    request_timeout_ms: 5000    # timeout tối đa chờ Kafka ack
 
   # Consumer settings
   consumer:
