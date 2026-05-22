@@ -21,8 +21,6 @@ services:
       - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
       - KAFKA_LOG_DIRS=/var/lib/kafka/data
       - KAFKA_OPTS=-Djava.net.preferIPv4Stack=true
-      - KAFKA_NUM_IO_THREADS=8
-      - KAFKA_NUM_NETWORK_THREADS=4
     networks:
       - spark-net
     healthcheck:
@@ -224,7 +222,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          cpus: '4.0'
           memory: 8g
         reservations:
           cpus: '1.0'
