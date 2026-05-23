@@ -192,6 +192,85 @@ await kafka_queue.put(KafkaMessage("user-events", payload, key=str(event.session
 
 **Rủi ro:** Worker là single point — nếu worker crash, messages trong queue bị mất. Có thể thêm retry + dead-letter queue sau này nếu cần.
 
+### 1.3 Fix Worker Loop — send_and_wait → create_task + send_buffered
+
+**File:** `src/core/infra/kafka_queue.py`, `src/core/infra/kafka.py`
+
+**Vấn đề:**
+
+Sau khi implement Phase 1.2, benchmark v7 cho thấy Spark nhận 0 rows dù API đã publish event. Debug phát hiện 2 lỗi trong worker loop:
+
+**Lỗi 1 — Worker loop dùng `await send()` dẫn đến `send_and_wait()`:**
+
+```python
+# kafka_queue.py (worker loop cũ)
+async def _worker_loop(self):
+    while True:
+        msg = await self._queue.get()
+        await self._producer.send(msg.topic, msg.message, key=msg.key)
+        #     ↑ send() → KafkaProducerService.send() → AIOKafkaProducer.send_and_wait()
+        #       Chờ Kafka ack từng message → drain queue rất chậm (~10 msg/s khi Kafka tải)
+        self._queue.task_done()
+```
+
+Khi Kafka tải cao (benchmark 80 VUs), mỗi `send_and_wait()` mất 100-500ms. Worker chỉ drain ~2-10 msg/s, trong khi API push ~80 msg/s → queue đầy trong vài giây, drop message.
+
+**Lỗi 2 — send_async (fix lần 1) dùng `asyncio.ensure_future` nuốt lỗi:**
+
+```python
+# kafka.py (send_async — sai)
+def send_async(self, topic, message, key=None):
+    if not self._producer:
+        raise RuntimeError("Producer not started")
+    asyncio.ensure_future(self._producer.send(topic, message, key=encoded_key))
+    #     ↑ Nếu producer.send() fail (connection error, timeout, etc.),
+    #       exception bị nuốt, không log, message không bao giờ tới Kafka.
+```
+
+`asyncio.ensure_future(coroutine)` tạo Task nhưng không ai `await` → Task exception trở thành "unretrieved exception", chỉ được asyncio log mờ nhạt. Hậu quả: API log "Event received" nhưng Kafka không nhận được gì, Spark batch 0 rows.
+
+**Cách fix:**
+
+```python
+# kafka.py — thêm send_buffered (fire-and-forget an toàn)
+async def send_buffered(self, topic, message, key=None):
+    if not self._producer: await self.start()
+    encoded_key = key.encode("utf-8") if key else None
+    return await self._producer.send(topic, message, key=encoded_key)
+    #     ↑ AIOKafkaProducer.send() trả về Future khi message được buffer,
+    #       KHÔNG chờ ack từ broker. Worker không block.
+
+# kafka_queue.py — worker loop dùng create_task + callback
+async def _worker_loop(self):
+    while True:
+        msg = await self._queue.get()
+        task = asyncio.create_task(
+            self._producer.send_buffered(msg.topic, msg.message, key=msg.key)
+        )
+        task.add_done_callback(
+            lambda t: self._queue.task_done() or (
+                t.exception() and logger.error(
+                    "Kafka send error: %s", t.exception()
+                )
+            )
+        )
+        # Worker loop không await task — lấy message tiếp theo ngay lập tức.
+        # send_buffered chạy background, lỗi được callback log.
+```
+
+**Thay đổi khác:**
+- Queue maxsize: 1000 → 5000 (tham số explicit trong `main.py` cũng được update)
+- `import asyncio` trong `kafka.py` được gỡ bỏ
+
+**Tác động:**
+
+| Metric | Trước (v7) | Sau fix |
+|--------|-----------|---------|
+| Worker drain rate | ~10 msg/s (sequential, chờ ack) | Tức thời (concurrent, fire-and-forget) |
+| Message loss | Queue đầy + lỗi nuốt | Chỉ drop khi queue đầy 5000 |
+| Spark batch rows | 0 rows (send không tới Kafka) | >0 rows (message tới Kafka) |
+| Error visibility | Lỗi bị nuốt (ensure_future) | Lỗi được callback log |
+
 ---
 
 ## Phase 2: Kafka Broker Optimization

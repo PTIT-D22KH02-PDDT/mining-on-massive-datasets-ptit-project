@@ -91,3 +91,9 @@ class KafkaProducerService:
         if not self._producer: await self.start()
         encoded_key = key.encode("utf-8") if key else None
         return await self._producer.send_and_wait(topic, message, key=encoded_key)
+
+    async def send_buffered(self, topic: str, message: Any, key: str | None = None):
+        """Fire-and-forget: returns as soon as the message is buffered (no ack wait)."""
+        if not self._producer: await self.start()
+        encoded_key = key.encode("utf-8") if key else None
+        return await self._producer.send(topic, message, key=encoded_key)

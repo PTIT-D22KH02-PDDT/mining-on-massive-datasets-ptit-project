@@ -23,7 +23,7 @@ class KafkaMessage:
     key: Optional[str] = None
 
 class KafkaQueue:
-    def __init__(self, producer: KafkaProducerService, maxsize: int = 1000):
+    def __init__(self, producer: KafkaProducerService, maxsize: int = 5000):
         self._producer = producer
         self._queue: asyncio.Queue[KafkaMessage] = asyncio.Queue(maxsize=maxsize)
         self._worker_task: Optional[asyncio.Task] = None
@@ -51,9 +51,13 @@ class KafkaQueue:
     async def _worker_loop(self):
         while True:
             msg = await self._queue.get()
-            try:
-                await self._producer.send(msg.topic, msg.message, key=msg.key)
-            except Exception as e:
-                logger.error(f"Kafka send failed (queued message dropped): {e}")
-            finally:
-                self._queue.task_done()
+            task = asyncio.create_task(
+                self._producer.send_buffered(msg.topic, msg.message, key=msg.key)
+            )
+            task.add_done_callback(
+                lambda t: self._queue.task_done() or (
+                    t.exception() and logger.error(
+                        "Kafka send error: %s", t.exception()
+                    )
+                )
+            )

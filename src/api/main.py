@@ -291,7 +291,7 @@ async def lifespan(app: FastAPI):
                 attempt += 1
                 p = KafkaProducerService()
                 await p.start()
-                q = KafkaQueue(p, maxsize=1000)
+                q = KafkaQueue(p, maxsize=5000)
                 await q.start()
                 kafka_producer = p
                 kafka_queue = q

@@ -11,9 +11,11 @@ const errorRate = new Rate('api_errors');
 
 export const options = {
   stages: [
-    { duration: '1m', target: 30 },
-    { duration: '1m', target: 80 },
-    { duration: '1m', target: 0 },
+    { duration: '2m', target: 30 },    // Ramp to 30 VUs
+    { duration: '2m', target: 60 },    // Ramp to 60 VUs
+    { duration: '1m', target: 80 },    // Ramp to 80 VUs
+    { duration: '2m', target: 80 },    // Steady-state at 80 VUs
+    { duration: '1m', target: 0 },     // Ramp down
   ],
   thresholds: {
     http_req_duration: ['p(95)<500'],

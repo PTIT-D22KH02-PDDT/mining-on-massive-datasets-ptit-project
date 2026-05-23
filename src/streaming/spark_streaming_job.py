@@ -331,6 +331,9 @@ def unified_foreach_batch(batch_df, batch_id):
     # Cache the raw batch to avoid recomputing across aggregations
     batch_df.cache()
 
+    # Drop rows with NULL keys before aggregation to avoid Postgres NOT NULL violations
+    batch_df = batch_df.filter(col("aid").isNotNull() & col("type").isNotNull())
+
     try:
         # === COMPUTE ALL 6 AGGREGATIONS (lazy, no execution yet) ===
 
@@ -554,10 +557,12 @@ def main():
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
         .option("subscribe", KAFKA_TOPIC) \
         .option("startingOffsets", os.getenv("SPARK_STARTING_OFFSETS", "earliest")) \
+        .option("maxOffsetsPerTrigger", os.getenv("SPARK_MAX_OFFSETS_PER_TRIGGER", "1000")) \
         .load()
 
     events_df = raw_df.selectExpr("CAST(value AS STRING)") \
         .select(from_json(col("value"), schema).alias("data")) \
+        .filter(col("data").isNotNull()) \
         .select("data.*") \
         .withColumn("timestamp", (col("ts") / 1000).cast(TimestampType())) \
         .withWatermark("timestamp", "2 minutes")
@@ -567,6 +572,7 @@ def main():
 
     query = events_df.writeStream \
         .outputMode("update") \
+        .trigger(processingTime="10 seconds") \
         .queryName("Unified-OTTO-Streaming-Query") \
         .foreachBatch(unified_foreach_batch) \
         .start()

@@ -20,7 +20,17 @@ services:
       - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
       - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
       - KAFKA_LOG_DIRS=/var/lib/kafka/data
-      - KAFKA_OPTS=-Djava.net.preferIPv4Stack=true
+      - KAFKA_HEAP_OPTS=-Xms2G -Xmx2G
+      - KAFKA_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=100 -Djava.net.preferIPv4Stack=true
+      - KAFKA_NUM_IO_THREADS=8
+      - KAFKA_NUM_NETWORK_THREADS=6
+      - KAFKA_NUM_REPLICA_FETCHERS=2
+      - KAFKA_LOG_RETENTION_HOURS=2
+      - KAFKA_LOG_RETENTION_BYTES=-1
+      - KAFKA_LOG_SEGMENT_DELETE_DELAY_MS=10000
+      - KAFKA_LOG_FLUSH_INTERVAL_MESSAGES=10000
+      - KAFKA_LOG_FLUSH_INTERVAL_MS=1000
+      - KAFKA_LOG_SEGMENT_BYTES=536870912
     networks:
       - spark-net
     healthcheck:
@@ -32,8 +42,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 2g
+          cpus: '4.0'
+          memory: 4g
 
   kafka-ui:
     image: provectuslabs/kafka-ui
