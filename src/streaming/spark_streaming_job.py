@@ -8,26 +8,50 @@ Phase 1 Improvements:
 - 1.4 Adaptive checkpoint cleanup
 """
 
-import os
-import logging
 import json
-import psycopg2
-from datetime import datetime, timedelta
+import logging
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+
+import psycopg2
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, window, count, when, lit, struct, to_json, approx_count_distinct, min as spark_min, max as spark_max, sum as spark_sum, current_timestamp
-from pyspark.sql.functions import avg as spark_avg, stddev as spark_stddev
-from pyspark.sql.types import StructType, StructField, LongType, StringType, TimestampType
+from pyspark.sql.functions import (
+    approx_count_distinct,
+    col,
+    count,
+    current_timestamp,
+    from_json,
+    lit,
+    struct,
+    to_json,
+    when,
+    window,
+)
+from pyspark.sql.functions import avg as spark_avg
+from pyspark.sql.functions import max as spark_max
+from pyspark.sql.functions import min as spark_min
+from pyspark.sql.functions import stddev as spark_stddev
+from pyspark.sql.functions import sum as spark_sum
 from pyspark.sql.streaming import StreamingQueryListener
+from pyspark.sql.types import (
+    LongType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
+)
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092")
 KAFKA_TOPIC = "user-events"
 CHECKPOINT_LOCATION = "/tmp/spark-checkpoints/otto-streaming"
 CHECKPOINT_RETENTION_DAYS = 3
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
@@ -39,17 +63,19 @@ PG_URL = f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{PG_DB}"
 PG_PROPERTIES = {
     "user": PG_USER,
     "password": PG_PASSWORD,
-    "driver": "org.postgresql.Driver"
+    "driver": "org.postgresql.Driver",
 }
 PG_BATCH_SIZE = 500
 
-schema = StructType([
-    StructField("session_id", LongType(), True),
-    StructField("aid", LongType(), True),
-    StructField("type", StringType(), True),
-    StructField("ts", LongType(), True),
-    StructField("model_used", StringType(), True)
-])
+schema = StructType(
+    [
+        StructField("session_id", LongType(), True),
+        StructField("aid", LongType(), True),
+        StructField("type", StringType(), True),
+        StructField("ts", LongType(), True),
+        StructField("model_used", StringType(), True),
+    ]
+)
 
 
 class MetricsListener(StreamingQueryListener):
@@ -61,8 +87,11 @@ class MetricsListener(StreamingQueryListener):
         conn = None
         try:
             conn = psycopg2.connect(
-                host=PG_HOST, port=int(PG_PORT), dbname=PG_DB,
-                user=PG_USER, password=PG_PASSWORD
+                host=PG_HOST,
+                port=int(PG_PORT),
+                dbname=PG_DB,
+                user=PG_USER,
+                password=PG_PASSWORD,
             )
             with conn.cursor() as cur:
                 cur.execute(
@@ -78,8 +107,8 @@ class MetricsListener(StreamingQueryListener):
                         progress.batchId,
                         progress.inputRowsPerSecond,
                         progress.processedRowsPerSecond,
-                        progress.durationMs.get("triggerExecution", 0)
-                    )
+                        progress.durationMs.get("triggerExecution", 0),
+                    ),
                 )
             conn.commit()
         except Exception as e:
@@ -107,6 +136,7 @@ def cleanup_old_checkpoints():
                 mtime = datetime.fromtimestamp(os.path.getmtime(path))
                 if mtime < cutoff:
                     import shutil
+
                     shutil.rmtree(path)
                     cleaned += 1
         if cleaned:
@@ -119,22 +149,39 @@ def write_stats_hourly_from_rows(rows):
     """Write global stats via psycopg2 multi-row INSERT."""
     if not rows:
         return
-    conn = psycopg2.connect(host=PG_HOST, port=int(PG_PORT), dbname=PG_DB, user=PG_USER, password=PG_PASSWORD)
+    conn = psycopg2.connect(
+        host=PG_HOST,
+        port=int(PG_PORT),
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PASSWORD,
+    )
     try:
         values = []
         for r in rows:
-            values.append((
-                r['window_start'], r['window_end'], r['total_events'],
-                r['total_sessions'], r['unique_sessions'], r['total_clicks'],
-                r['total_carts'], r['total_orders'], r['unique_items'],
-                r['click_to_cart_rate'], r['cart_to_order_rate']
-            ))
+            values.append(
+                (
+                    r["window_start"],
+                    r["window_end"],
+                    r["total_events"],
+                    r["total_sessions"],
+                    r["unique_sessions"],
+                    r["total_clicks"],
+                    r["total_carts"],
+                    r["total_orders"],
+                    r["unique_items"],
+                    r["click_to_cart_rate"],
+                    r["cart_to_order_rate"],
+                )
+            )
         batch_size = 100
         with conn.cursor() as cur:
             for i in range(0, len(values), batch_size):
-                batch = values[i:i + batch_size]
-                args_str = ','.join(
-                    cur.mogrify("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", row).decode()
+                batch = values[i : i + batch_size]
+                args_str = ",".join(
+                    cur.mogrify(
+                        "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", row
+                    ).decode()
                     for row in batch
                 )
                 cur.execute(
@@ -156,15 +203,29 @@ def write_anomaly_logs_from_rows(rows):
     """Bulk INSERT for anomaly_logs using multi-row INSERT."""
     if not rows:
         return
-    conn = psycopg2.connect(host=PG_HOST, port=int(PG_PORT), dbname=PG_DB, user=PG_USER, password=PG_PASSWORD)
+    conn = psycopg2.connect(
+        host=PG_HOST,
+        port=int(PG_PORT),
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PASSWORD,
+    )
     try:
-        values = [(r['session_id'], r['anomaly_type'], r['details'], r['detected_at']) for r in rows]
+        values = [
+            (r["session_id"], r["anomaly_type"], r["details"], r["detected_at"])
+            for r in rows
+        ]
         batch_size = 100
         with conn.cursor() as cur:
             for i in range(0, len(values), batch_size):
-                batch = values[i:i + batch_size]
-                args_str = ','.join(cur.mogrify("(%s, %s, %s::jsonb, %s)", row).decode() for row in batch)
-                cur.execute(f"INSERT INTO anomaly_logs (session_id, anomaly_type, details, detected_at) VALUES {args_str}")
+                batch = values[i : i + batch_size]
+                args_str = ",".join(
+                    cur.mogrify("(%s, %s, %s::jsonb, %s)", row).decode()
+                    for row in batch
+                )
+                cur.execute(
+                    f"INSERT INTO anomaly_logs (session_id, anomaly_type, details, detected_at) VALUES {args_str}"
+                )
         conn.commit()
     except Exception as e:
         print(f"Error write_anomaly_logs: {e}")
@@ -177,14 +238,25 @@ def write_popular_items_from_rows(rows):
     """Bulk UPSERT for popular_items."""
     if not rows:
         return
-    conn = psycopg2.connect(host=PG_HOST, port=int(PG_PORT), dbname=PG_DB, user=PG_USER, password=PG_PASSWORD)
+    conn = psycopg2.connect(
+        host=PG_HOST,
+        port=int(PG_PORT),
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PASSWORD,
+    )
     try:
-        values = [(r['time_scope'], r['event_type'], r['aid'], r['count'], r['rank']) for r in rows]
+        values = [
+            (r["time_scope"], r["event_type"], r["aid"], r["count"], r["rank"])
+            for r in rows
+        ]
         batch_size = 100
         with conn.cursor() as cur:
             for i in range(0, len(values), batch_size):
-                batch = values[i:i + batch_size]
-                args_str = ','.join(cur.mogrify("(%s, %s, %s, %s, %s)", row).decode() for row in batch)
+                batch = values[i : i + batch_size]
+                args_str = ",".join(
+                    cur.mogrify("(%s, %s, %s, %s, %s)", row).decode() for row in batch
+                )
                 cur.execute(f"""
                     INSERT INTO popular_items (time_scope, event_type, aid, count, rank)
                     VALUES {args_str}
@@ -199,24 +271,36 @@ def write_popular_items_from_rows(rows):
         conn.close()
 
 
-
-
-
 def write_stats_items_from_rows(rows):
     """Bulk UPSERT for stats_items — item conversion metrics (Phase 5 Item Insights)."""
     if not rows:
         return
-    conn = psycopg2.connect(host=PG_HOST, port=int(PG_PORT), dbname=PG_DB, user=PG_USER, password=PG_PASSWORD)
+    conn = psycopg2.connect(
+        host=PG_HOST,
+        port=int(PG_PORT),
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PASSWORD,
+    )
     try:
         values = []
         for r in rows:
-            values.append((r['aid'], r['clicks'], r['carts'], r['orders'],
-                          float(r['click_to_cart_rate']), float(r['click_to_order_rate']), float(r['cart_to_order_rate'])))
+            values.append(
+                (
+                    r["aid"],
+                    r["clicks"],
+                    r["carts"],
+                    r["orders"],
+                    float(r["click_to_cart_rate"]),
+                    float(r["click_to_order_rate"]),
+                    float(r["cart_to_order_rate"]),
+                )
+            )
         batch_size = 100
         with conn.cursor() as cur:
             for i in range(0, len(values), batch_size):
-                batch = values[i:i + batch_size]
-                args_str = ','.join(
+                batch = values[i : i + batch_size]
+                args_str = ",".join(
                     cur.mogrify("(%s, %s, %s, %s, %s, %s, %s)", row).decode()
                     for row in batch
                 )
@@ -246,18 +330,39 @@ def write_advanced_funnel_from_rows(rows):
     """Bulk UPSERT for advanced_funnel_stats."""
     if not rows:
         return
-    conn = psycopg2.connect(host=PG_HOST, port=int(PG_PORT), dbname=PG_DB, user=PG_USER, password=PG_PASSWORD)
+    conn = psycopg2.connect(
+        host=PG_HOST,
+        port=int(PG_PORT),
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PASSWORD,
+    )
     try:
         values = []
         for r in rows:
-            c2o = float(r['sessions_with_orders']) / float(r['sessions_with_clicks']) if r['sessions_with_clicks'] > 0 else 0.0
-            values.append((r['model_used'], r['total_sessions'], r['sessions_with_clicks'],
-                          r['sessions_with_carts'], r['sessions_with_orders'], c2o))
+            c2o = (
+                float(r["sessions_with_orders"]) / float(r["sessions_with_clicks"])
+                if r["sessions_with_clicks"] > 0
+                else 0.0
+            )
+            values.append(
+                (
+                    r["model_used"],
+                    r["total_sessions"],
+                    r["sessions_with_clicks"],
+                    r["sessions_with_carts"],
+                    r["sessions_with_orders"],
+                    c2o,
+                )
+            )
         batch_size = 100
         with conn.cursor() as cur:
             for i in range(0, len(values), batch_size):
-                batch = values[i:i + batch_size]
-                args_str = ','.join(cur.mogrify("(%s, %s, %s, %s, %s, %s, NOW())", row).decode() for row in batch)
+                batch = values[i : i + batch_size]
+                args_str = ",".join(
+                    cur.mogrify("(%s, %s, %s, %s, %s, %s, NOW())", row).decode()
+                    for row in batch
+                )
                 cur.execute(f"""
                     INSERT INTO advanced_funnel_stats
                         (model_used, total_sessions, sessions_with_clicks, sessions_with_carts,
@@ -283,20 +388,36 @@ def write_stats_sessions_from_rows(rows):
     """Bulk UPSERT for stats_sessions."""
     if not rows:
         return
-    total_count = sum(r['count'] for r in rows)
+    total_count = sum(r["count"] for r in rows)
     if not total_count or total_count == 0:
         return
-    conn = psycopg2.connect(host=PG_HOST, port=int(PG_PORT), dbname=PG_DB, user=PG_USER, password=PG_PASSWORD)
+    conn = psycopg2.connect(
+        host=PG_HOST,
+        port=int(PG_PORT),
+        dbname=PG_DB,
+        user=PG_USER,
+        password=PG_PASSWORD,
+    )
     try:
         values = []
         for r in rows:
-            pct = float(r['count']) * 100.0 / float(total_count)
-            values.append((r['session_type'], r['count'], r['avg_length'], r['avg_duration_sec'], pct))
+            pct = float(r["count"]) * 100.0 / float(total_count)
+            values.append(
+                (
+                    r["session_type"],
+                    r["count"],
+                    r["avg_length"],
+                    r["avg_duration_sec"],
+                    pct,
+                )
+            )
         batch_size = 100
         with conn.cursor() as cur:
             for i in range(0, len(values), batch_size):
-                batch = values[i:i + batch_size]
-                args_str = ','.join(cur.mogrify("(%s, %s, %s, %s, %s)", row).decode() for row in batch)
+                batch = values[i : i + batch_size]
+                args_str = ",".join(
+                    cur.mogrify("(%s, %s, %s, %s, %s)", row).decode() for row in batch
+                )
                 cur.execute(f"""
                     INSERT INTO stats_sessions (session_type, count, avg_length, avg_duration_sec, pct_of_total)
                     VALUES {args_str}
@@ -338,16 +459,16 @@ def unified_foreach_batch(batch_df, batch_id):
         # === COMPUTE ALL 6 AGGREGATIONS (lazy, no execution yet) ===
 
         # A: Global Stats Aggregation (5-min window)
-        stats_df = batch_df \
-            .groupBy(window(col("timestamp"), "1 minute")) \
+        stats_df = (
+            batch_df.groupBy(window(col("timestamp"), "1 minute"))
             .agg(
                 count("*").alias("total_events"),
                 approx_count_distinct("session_id").alias("total_sessions"),
                 count(when(col("type") == "clicks", 1)).alias("total_clicks"),
                 count(when(col("type") == "carts", 1)).alias("total_carts"),
                 count(when(col("type") == "orders", 1)).alias("total_orders"),
-                approx_count_distinct("aid").alias("unique_items")
-            ) \
+                approx_count_distinct("aid").alias("unique_items"),
+            )
             .select(
                 col("window.start").alias("window_start"),
                 col("window.end").alias("window_end"),
@@ -357,12 +478,25 @@ def unified_foreach_batch(batch_df, batch_id):
                 col("total_clicks"),
                 col("total_carts"),
                 col("total_orders"),
-                col("unique_items")
-            ) \
-            .withColumn("click_to_cart_rate",
-                when(col("total_clicks") > 0, col("total_carts").cast("double") / col("total_clicks").cast("double")).otherwise(0.0)) \
-            .withColumn("cart_to_order_rate",
-                when(col("total_carts") > 0, col("total_orders").cast("double") / col("total_carts").cast("double")).otherwise(0.0))
+                col("unique_items"),
+            )
+            .withColumn(
+                "click_to_cart_rate",
+                when(
+                    col("total_clicks") > 0,
+                    col("total_carts").cast("double")
+                    / col("total_clicks").cast("double"),
+                ).otherwise(0.0),
+            )
+            .withColumn(
+                "cart_to_order_rate",
+                when(
+                    col("total_carts") > 0,
+                    col("total_orders").cast("double")
+                    / col("total_carts").cast("double"),
+                ).otherwise(0.0),
+            )
+        )
 
         # B: Anomaly Detection (Z-score based — Phase 3.1)
         # Replaces hard threshold (count > 50) with statistical detection
@@ -370,13 +504,13 @@ def unified_foreach_batch(batch_df, batch_id):
         Z_SCORE_THRESHOLD = 3.0
         MIN_SESSIONS_FOR_ZSCORE = 10
 
-        session_counts_df = batch_df \
-            .groupBy(window(col("timestamp"), "1 minute"), "session_id") \
-            .count()
+        session_counts_df = batch_df.groupBy(
+            window(col("timestamp"), "1 minute"), "session_id"
+        ).count()
 
         batch_stats = session_counts_df.select(
             spark_avg("count").alias("mean_count"),
-            spark_stddev("count").alias("std_count")
+            spark_stddev("count").alias("std_count"),
         ).collect()
 
         if batch_stats and batch_stats[0]["std_count"]:
@@ -386,93 +520,149 @@ def unified_foreach_batch(batch_df, batch_id):
 
             if session_count >= MIN_SESSIONS_FOR_ZSCORE and std_count and std_count > 0:
                 threshold = mean_count + Z_SCORE_THRESHOLD * std_count
-                anomalies_df = session_counts_df \
-                    .filter(col("count") > threshold) \
-                    .dropDuplicates(["session_id"]) \
+                anomalies_df = (
+                    session_counts_df.filter(col("count") > threshold)
+                    .dropDuplicates(["session_id"])
                     .select(
                         col("session_id"),
                         lit("BOT_TRAFFIC").alias("anomaly_type"),
-                        to_json(struct(
-                            col("count").alias("event_count_per_min"),
-                            lit(round(mean_count, 2)).alias("batch_mean"),
-                            lit(round(std_count, 2)).alias("batch_std"),
-                            lit(round(threshold, 2)).alias("z_threshold")
-                        )).alias("details"),
-                        current_timestamp().alias("detected_at")
+                        to_json(
+                            struct(
+                                col("count").alias("event_count_per_min"),
+                                lit(round(mean_count, 2)).alias("batch_mean"),
+                                lit(round(std_count, 2)).alias("batch_std"),
+                                lit(round(threshold, 2)).alias("z_threshold"),
+                            )
+                        ).alias("details"),
+                        current_timestamp().alias("detected_at"),
                     )
+                )
             else:
-                anomalies_df = session_counts_df.select(lit(None).alias("session_id")).filter("session_id IS NULL")
+                anomalies_df = session_counts_df.select(
+                    lit(None).alias("session_id")
+                ).filter("session_id IS NULL")
         else:
-            anomalies_df = session_counts_df.select(lit(None).alias("session_id")).filter("session_id IS NULL")
+            anomalies_df = session_counts_df.select(
+                lit(None).alias("session_id")
+            ).filter("session_id IS NULL")
 
         # C: Real-time Popularity (all-time per type & aid)
-        popular_df = batch_df \
-            .groupBy("type", "aid") \
-            .count() \
+        popular_df = (
+            batch_df.groupBy("type", "aid")
+            .count()
             .select(
                 lit("all_time").alias("time_scope"),
                 col("type").alias("event_type"),
                 col("aid"),
                 col("count"),
-                lit(0).alias("rank")
+                lit(0).alias("rank"),
             )
+        )
 
         # D: Item Conversion Metrics (stats_items) — Phase 5 new use case
         # Tracks per-item conversion funnel: clicks → carts → orders
-        items_df = batch_df \
-            .groupBy("aid") \
+        items_df = (
+            batch_df.groupBy("aid")
             .agg(
                 count(when(col("type") == "clicks", 1)).alias("clicks"),
                 count(when(col("type") == "carts", 1)).alias("carts"),
-                count(when(col("type") == "orders", 1)).alias("orders")
-            ) \
-            .withColumn("click_to_cart_rate",
-                when(col("clicks") > 0, col("carts").cast("float") / col("clicks").cast("float")).otherwise(0.0)) \
-            .withColumn("click_to_order_rate",
-                when(col("clicks") > 0, col("orders").cast("float") / col("clicks").cast("float")).otherwise(0.0)) \
-            .withColumn("cart_to_order_rate",
-                when(col("carts") > 0, col("orders").cast("float") / col("carts").cast("float")).otherwise(0.0)) \
-            .select(col("aid"), col("clicks"), col("carts"), col("orders"),
-                    col("click_to_cart_rate"), col("click_to_order_rate"), col("cart_to_order_rate"))
+                count(when(col("type") == "orders", 1)).alias("orders"),
+            )
+            .withColumn(
+                "click_to_cart_rate",
+                when(
+                    col("clicks") > 0,
+                    col("carts").cast("float") / col("clicks").cast("float"),
+                ).otherwise(0.0),
+            )
+            .withColumn(
+                "click_to_order_rate",
+                when(
+                    col("clicks") > 0,
+                    col("orders").cast("float") / col("clicks").cast("float"),
+                ).otherwise(0.0),
+            )
+            .withColumn(
+                "cart_to_order_rate",
+                when(
+                    col("carts") > 0,
+                    col("orders").cast("float") / col("carts").cast("float"),
+                ).otherwise(0.0),
+            )
+            .select(
+                col("aid"),
+                col("clicks"),
+                col("carts"),
+                col("orders"),
+                col("click_to_cart_rate"),
+                col("click_to_order_rate"),
+                col("cart_to_order_rate"),
+            )
+        )
 
         # E: Model Performance (Advanced Funnel)
-        model_df = batch_df \
-            .filter(col("model_used").isNotNull()) \
-            .groupBy("model_used") \
+        model_df = (
+            batch_df.filter(col("model_used").isNotNull())
+            .groupBy("model_used")
             .agg(
                 approx_count_distinct("session_id").alias("total_sessions"),
-                approx_count_distinct(when(col("type") == "clicks", col("session_id"))).alias("sessions_with_clicks"),
-                approx_count_distinct(when(col("type") == "carts", col("session_id"))).alias("sessions_with_carts"),
-                approx_count_distinct(when(col("type") == "orders", col("session_id"))).alias("sessions_with_orders")
-            ) \
-            .withColumn("click_to_order_rate",
-                when(col("sessions_with_clicks") > 0,
-                     col("sessions_with_orders").cast("float") / col("sessions_with_clicks").cast("float")).otherwise(0.0))
+                approx_count_distinct(
+                    when(col("type") == "clicks", col("session_id"))
+                ).alias("sessions_with_clicks"),
+                approx_count_distinct(
+                    when(col("type") == "carts", col("session_id"))
+                ).alias("sessions_with_carts"),
+                approx_count_distinct(
+                    when(col("type") == "orders", col("session_id"))
+                ).alias("sessions_with_orders"),
+            )
+            .withColumn(
+                "click_to_order_rate",
+                when(
+                    col("sessions_with_clicks") > 0,
+                    col("sessions_with_orders").cast("float")
+                    / col("sessions_with_clicks").cast("float"),
+                ).otherwise(0.0),
+            )
+        )
 
         # F: Session Segmentation (stats_sessions)
-        session_stats_df = batch_df.groupBy("session_id").agg(
-            count("*").alias("session_length"),
-            spark_max(when(col("type") == "clicks", 1).otherwise(0)).alias("has_clicks"),
-            spark_max(when(col("type") == "carts", 1).otherwise(0)).alias("has_carts"),
-            spark_max(when(col("type") == "orders", 1).otherwise(0)).alias("has_orders"),
-            spark_min(col("ts")).alias("first_ts"),
-            spark_max(col("ts")).alias("last_ts")
-        ).withColumn(
-            "session_type",
-            when(col("has_orders") == 1, "buyer")
-            .when(col("has_carts") == 1, "cart_abandoner")
-            .otherwise("browse_only")
-        ).withColumn("duration_sec", (col("last_ts") - col("first_ts")) / 1000.0)
+        session_stats_df = (
+            batch_df.groupBy("session_id")
+            .agg(
+                count("*").alias("session_length"),
+                spark_max(when(col("type") == "clicks", 1).otherwise(0)).alias(
+                    "has_clicks"
+                ),
+                spark_max(when(col("type") == "carts", 1).otherwise(0)).alias(
+                    "has_carts"
+                ),
+                spark_max(when(col("type") == "orders", 1).otherwise(0)).alias(
+                    "has_orders"
+                ),
+                spark_min(col("ts")).alias("first_ts"),
+                spark_max(col("ts")).alias("last_ts"),
+            )
+            .withColumn(
+                "session_type",
+                when(col("has_orders") == 1, "buyer")
+                .when(col("has_carts") == 1, "cart_abandoner")
+                .otherwise("browse_only"),
+            )
+            .withColumn("duration_sec", (col("last_ts") - col("first_ts")) / 1000.0)
+        )
 
-        type_stats_df = session_stats_df.groupBy("session_type").agg(
-            count("*").alias("count"),
-            spark_sum("session_length").alias("total_length"),
-            spark_sum("duration_sec").alias("total_duration")
-        ).withColumn(
-            "avg_length", col("total_length") / col("count")
-        ).withColumn(
-            "avg_duration_sec", col("total_duration") / col("count")
-        ).select("session_type", "count", "avg_length", "avg_duration_sec")
+        type_stats_df = (
+            session_stats_df.groupBy("session_type")
+            .agg(
+                count("*").alias("count"),
+                spark_sum("session_length").alias("total_length"),
+                spark_sum("duration_sec").alias("total_duration"),
+            )
+            .withColumn("avg_length", col("total_length") / col("count"))
+            .withColumn("avg_duration_sec", col("total_duration") / col("count"))
+            .select("session_type", "count", "avg_length", "avg_duration_sec")
+        )
 
         # === MATERIALIZE ALL RESULTS (trigger execution once) ===
         # Collecting to Python objects is safe before threading.
@@ -520,6 +710,7 @@ def unified_foreach_batch(batch_df, batch_id):
     except Exception as e:
         print(f"!!! ERROR unified_foreach_batch (batch_id={batch_id}): {e}")
         import traceback
+
         traceback.print_exc()
     finally:
         # Ensure unpersist even on error
@@ -537,13 +728,17 @@ def start_checkpoint_cleanup():
 
 
 def main():
-    spark = SparkSession.builder \
-        .appName("OTTO-Streaming-Processor") \
-        .config("spark.sql.streaming.checkpointLocation", CHECKPOINT_LOCATION) \
-        .config("spark.sql.streaming.minBatchesToRetain", 10) \
-        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.1") \
-        .config("spark.sql.session.timeZone", "GMT+7") \
+    spark = (
+        SparkSession.builder.appName("OTTO-Streaming-Processor")
+        .config("spark.sql.streaming.checkpointLocation", CHECKPOINT_LOCATION)
+        .config("spark.sql.streaming.minBatchesToRetain", 10)
+        .config(
+            "spark.jars.packages",
+            "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.postgresql:postgresql:42.7.1",
+        )
+        .config("spark.sql.session.timeZone", "UTC")
         .getOrCreate()
+    )
 
     spark.sparkContext.setLogLevel("WARN")
     spark.streams.addListener(MetricsListener())
@@ -552,30 +747,36 @@ def main():
     print(f"DEBUG: Spark Version: {spark.version}")
     print("=" * 40)
 
-    raw_df = spark.readStream \
-        .format("kafka") \
-        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
-        .option("subscribe", KAFKA_TOPIC) \
-        .option("startingOffsets", os.getenv("SPARK_STARTING_OFFSETS", "earliest")) \
-        .option("maxOffsetsPerTrigger", os.getenv("SPARK_MAX_OFFSETS_PER_TRIGGER", "1000")) \
+    raw_df = (
+        spark.readStream.format("kafka")
+        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
+        .option("subscribe", KAFKA_TOPIC)
+        .option("startingOffsets", os.getenv("SPARK_STARTING_OFFSETS", "earliest"))
+        .option(
+            "maxOffsetsPerTrigger", os.getenv("SPARK_MAX_OFFSETS_PER_TRIGGER", "1000")
+        )
         .load()
+    )
 
-    events_df = raw_df.selectExpr("CAST(value AS STRING)") \
-        .select(from_json(col("value"), schema).alias("data")) \
-        .filter(col("data").isNotNull()) \
-        .select("data.*") \
-        .withColumn("timestamp", (col("ts") / 1000).cast(TimestampType())) \
+    events_df = (
+        raw_df.selectExpr("CAST(value AS STRING)")
+        .select(from_json(col("value"), schema).alias("data"))
+        .filter(col("data").isNotNull())
+        .select("data.*")
+        .withColumn("timestamp", ((col("ts") / 1000 + lit(7 * 3600)).cast(TimestampType())))
         .withWatermark("timestamp", "2 minutes")
+    )
 
     # Phase 1.1: Single writeStream (reads Kafka ONCE, writes to 6 tables)
     threading.Thread(target=start_checkpoint_cleanup, daemon=True).start()
 
-    query = events_df.writeStream \
-        .outputMode("update") \
-        .trigger(processingTime="10 seconds") \
-        .queryName("Unified-OTTO-Streaming-Query") \
-        .foreachBatch(unified_foreach_batch) \
+    query = (
+        events_df.writeStream.outputMode("update")
+        .trigger(processingTime="10 seconds")
+        .queryName("Unified-OTTO-Streaming-Query")
+        .foreachBatch(unified_foreach_batch)
         .start()
+    )
 
     print("Unified streaming query started (1 Kafka read → 6 PostgreSQL tables)")
     spark.streams.awaitAnyTermination()
