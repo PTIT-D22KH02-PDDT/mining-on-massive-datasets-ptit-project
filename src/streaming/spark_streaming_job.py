@@ -339,7 +339,7 @@ def unified_foreach_batch(batch_df, batch_id):
 
         # A: Global Stats Aggregation (5-min window)
         stats_df = batch_df \
-            .groupBy(window(col("timestamp"), "5 minutes")) \
+            .groupBy(window(col("timestamp"), "1 minute")) \
             .agg(
                 count("*").alias("total_events"),
                 approx_count_distinct("session_id").alias("total_sessions"),
