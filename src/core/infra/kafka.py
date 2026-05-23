@@ -15,12 +15,19 @@ from src.core.config import cfg
 
 logger = logging.getLogger(__name__)
 
+
 def _kafka_cfg() -> Dict[str, Any]:
     return cfg.get("kafka", {})
 
+
 def _bootstrap_servers() -> str:
     import os
-    return os.getenv("KAFKA_BOOTSTRAP_SERVERS", _kafka_cfg().get("bootstrap_servers", "localhost:29092"))
+
+    return os.getenv(
+        "KAFKA_BOOTSTRAP_SERVERS",
+        _kafka_cfg().get("bootstrap_servers", "localhost:29092"),
+    )
+
 
 async def ensure_topics() -> tuple[List[str], bool]:
     """
@@ -55,6 +62,7 @@ async def ensure_topics() -> tuple[List[str], bool]:
 
     return created, newly_created
 
+
 def _normalize_acks(val: Any) -> Any:
     if isinstance(val, int) or val == "all":
         return val
@@ -62,15 +70,17 @@ def _normalize_acks(val: Any) -> Any:
         return int(val)
     return 1
 
+
 class KafkaProducerService:
     """Simple wrapper for AIOKafkaProducer."""
-    
+
     def __init__(self):
         self._bootstrap = _bootstrap_servers()
         self._producer: Optional[AIOKafkaProducer] = None
 
     async def start(self):
-        if self._producer: return
+        if self._producer:
+            return
         producer_cfg = _kafka_cfg().get("producer", {})
         self._producer = AIOKafkaProducer(
             bootstrap_servers=self._bootstrap,
@@ -88,12 +98,14 @@ class KafkaProducerService:
             self._producer = None
 
     async def send(self, topic: str, message: Any, key: str | None = None):
-        if not self._producer: await self.start()
+        if not self._producer:
+            await self.start()
         encoded_key = key.encode("utf-8") if key else None
         return await self._producer.send_and_wait(topic, message, key=encoded_key)
 
     async def send_buffered(self, topic: str, message: Any, key: str | None = None):
         """Fire-and-forget: returns as soon as the message is buffered (no ack wait)."""
-        if not self._producer: await self.start()
+        if not self._producer:
+            await self.start()
         encoded_key = key.encode("utf-8") if key else None
         return await self._producer.send(topic, message, key=encoded_key)

@@ -4,9 +4,9 @@ Stores session events as a list in Redis with TTL auto-cleanup.
 """
 
 import json
-import time
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 import redis
@@ -32,7 +32,9 @@ class SessionManager:
     def _key(self, session_id: int | str) -> str:
         return f"session:{session_id}"
 
-    def append_event(self, session_id: int | str, aid: int, event_type: str, ts: Optional[int] = None) -> int:
+    def append_event(
+        self, session_id: int | str, aid: int, event_type: str, ts: Optional[int] = None
+    ) -> int:
         """
         Append an event to a session. Returns the new session length.
         """
@@ -68,12 +70,16 @@ class SessionManager:
         self.redis.delete(self._key(session_id))
         self.redis.delete(f"recs:{session_id}")
 
-    def store_recommendations(self, session_id: int | str, recommendations: Dict[str, List[int]]) -> None:
+    def store_recommendations(
+        self, session_id: int | str, recommendations: Dict[str, List[int]]
+    ) -> None:
         """Store the latest recommendations for a session for evaluation."""
         key = f"recs:{session_id}"
         self.redis.setex(key, SESSION_TTL_SECONDS, json.dumps(recommendations))
 
-    def get_last_recommendations(self, session_id: int | str) -> Optional[Dict[str, List[int]]]:
+    def get_last_recommendations(
+        self, session_id: int | str
+    ) -> Optional[Dict[str, List[int]]]:
         """Get the cached recommendations for a session."""
         key = f"recs:{session_id}"
         data = self.redis.get(key)

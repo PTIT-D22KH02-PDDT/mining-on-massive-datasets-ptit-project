@@ -763,7 +763,9 @@ def main():
         .select(from_json(col("value"), schema).alias("data"))
         .filter(col("data").isNotNull())
         .select("data.*")
-        .withColumn("timestamp", ((col("ts") / 1000 + lit(7 * 3600)).cast(TimestampType())))
+        .withColumn(
+            "timestamp", ((col("ts") / 1000 + lit(7 * 3600)).cast(TimestampType()))
+        )
         .withWatermark("timestamp", "2 minutes")
     )
 

@@ -32,7 +32,9 @@ class SparkService:
         self.spark_session.stop()
 
 
-def _start_spark(app_name: str | None = None) -> Tuple[SparkSession, spark_logging.Log4j]:
+def _start_spark(
+    app_name: str | None = None,
+) -> Tuple[SparkSession, spark_logging.Log4j]:
     """
     Start Spark session using settings from config/config.yml.
     """
@@ -40,12 +42,7 @@ def _start_spark(app_name: str | None = None) -> Tuple[SparkSession, spark_loggi
     master = sc.get("master", "local[*]")
     name = app_name or sc.get("app_name", "pyspark-app")
 
-    builder = (
-        SparkSession
-        .builder
-        .master(master)
-        .appName(name)
-    )
+    builder = SparkSession.builder.master(master).appName(name)
 
     # Apply any extra spark config from the YAML
     for key, value in sc.get("config", {}).items():

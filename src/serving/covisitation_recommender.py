@@ -1,8 +1,9 @@
 import json
-from pathlib import Path
-from typing import List, Dict, Optional
-import pandas as pd
 from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import pandas as pd
 
 
 class CovisitationRecommender:
@@ -29,7 +30,9 @@ class CovisitationRecommender:
             carts_orders_path = self.matrix_dir / "carts_orders_matrix.parquet"
             if carts_orders_path.exists():
                 df = pd.read_parquet(carts_orders_path)
-                self.carts_orders_matrix = self._build_lookup(df, "aid1", "aid2", "weight")
+                self.carts_orders_matrix = self._build_lookup(
+                    df, "aid1", "aid2", "weight"
+                )
         except Exception as e:
             print(f"Error loading carts_orders matrix: {e}")
 
@@ -41,11 +44,15 @@ class CovisitationRecommender:
         except Exception as e:
             print(f"Error loading buy2buy matrix: {e}")
 
-    def _build_lookup(self, df, key_col: str, value_col: str, weight_col: str) -> Dict[int, List[tuple]]:
+    def _build_lookup(
+        self, df, key_col: str, value_col: str, weight_col: str
+    ) -> Dict[int, List[tuple]]:
         """Build a lookup dictionary from DataFrame using efficient groupby."""
         lookup = defaultdict(list)
         for key, group in df.groupby(key_col):
-            lookup[key] = list(zip(group[value_col].tolist(), group[weight_col].tolist()))
+            lookup[key] = list(
+                zip(group[value_col].tolist(), group[weight_col].tolist())
+            )
         return dict(lookup)
 
     def recommend(

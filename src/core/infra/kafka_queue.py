@@ -16,11 +16,13 @@ from src.core.infra.kafka import KafkaProducerService
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class KafkaMessage:
     topic: str
     message: dict
     key: Optional[str] = None
+
 
 class KafkaQueue:
     def __init__(self, producer: KafkaProducerService, maxsize: int = 5000):
@@ -55,9 +57,11 @@ class KafkaQueue:
                 self._producer.send_buffered(msg.topic, msg.message, key=msg.key)
             )
             task.add_done_callback(
-                lambda t: self._queue.task_done() or (
-                    t.exception() and logger.error(
-                        "Kafka send error: %s", t.exception()
+                lambda t: (
+                    self._queue.task_done()
+                    or (
+                        t.exception()
+                        and logger.error("Kafka send error: %s", t.exception())
                     )
                 )
             )

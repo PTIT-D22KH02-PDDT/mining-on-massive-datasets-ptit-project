@@ -4,16 +4,17 @@ Pre-computes top items per event type and saves to PostgreSQL.
 Provides data for the Cold Start recommendation strategy.
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 from pathlib import Path
-from pyspark.sql import SparkSession, Window
-from pyspark.sql.functions import (
-    col, explode, count, row_number, lit
-)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
+from pyspark.sql import SparkSession, Window
+from pyspark.sql.functions import col, count, explode, lit, row_number
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
@@ -30,15 +31,17 @@ PG_URL = f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{PG_DB}"
 PG_PROPERTIES = {
     "user": PG_USER,
     "password": PG_PASSWORD,
-    "driver": "org.postgresql.Driver"
+    "driver": "org.postgresql.Driver",
 }
 
+
 def main():
-    spark = SparkSession.builder \
-        .appName("OTTO-Seed-Popular-Items") \
-        .config("spark.jars.packages", "org.postgresql:postgresql:42.7.1") \
-        .config("spark.driver.memory", "4g") \
+    spark = (
+        SparkSession.builder.appName("OTTO-Seed-Popular-Items")
+        .config("spark.jars.packages", "org.postgresql:postgresql:42.7.1")
+        .config("spark.driver.memory", "4g")
         .getOrCreate()
+    )
 
     spark.sparkContext.setLogLevel("WARN")
     logger.info("Spark Session Initialized.")
@@ -55,25 +58,22 @@ def main():
         sys.exit(1)
 
     # Flatten events (schema embedded in parquet)
-    events_df = raw_df.select(
-        explode("events").alias("event")
-    ).select(
-        col("event.aid").alias("aid"),
-        col("event.type").alias("event_type")
+    events_df = raw_df.select(explode("events").alias("event")).select(
+        col("event.aid").alias("aid"), col("event.type").alias("event_type")
     )
-    
+
     # 3. Aggregate counts per type and aid
     logger.info("Calculating popular items...")
-    agg_df = events_df.groupBy("event_type", "aid").agg(
-        count("*").alias("count")
-    )
-    
+    agg_df = events_df.groupBy("event_type", "aid").agg(count("*").alias("count"))
+
     # 4. Rank items within each event type using Window function
     window_spec = Window.partitionBy("event_type").orderBy(col("count").desc())
-    
-    ranked_df = agg_df.withColumn("rank", row_number().over(window_spec)) \
-                      .filter(col("rank") <= TOP_K) \
-                      .withColumn("time_scope", lit("all_time"))
+
+    ranked_df = (
+        agg_df.withColumn("rank", row_number().over(window_spec))
+        .filter(col("rank") <= TOP_K)
+        .withColumn("time_scope", lit("all_time"))
+    )
 
     # Select columns in the order expected by the DB table
     # Schema: (time_scope, event_type, aid, count, rank)
@@ -83,19 +83,15 @@ def main():
     logger.info(f"Writing top {TOP_K} items to PostgreSQL...")
     try:
         # Use overwrite mode with truncate to preserve constraints (like UNIQUE)
-        final_df.write \
-            .format("jdbc") \
-            .option("url", PG_URL) \
-            .option("dbtable", "popular_items") \
-            .option("truncate", "true") \
-            .options(**PG_PROPERTIES) \
-            .mode("overwrite") \
-            .save()
+        final_df.write.format("jdbc").option("url", PG_URL).option(
+            "dbtable", "popular_items"
+        ).option("truncate", "true").options(**PG_PROPERTIES).mode("overwrite").save()
         logger.info("Successfully seeded 'popular_items' table.")
     except Exception as e:
         logger.error(f"Failed to write to DB: {e}")
 
     spark.stop()
+
 
 if __name__ == "__main__":
     main()
