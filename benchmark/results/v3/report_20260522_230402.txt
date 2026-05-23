@@ -1,0 +1,48 @@
+========================================================================
+  OTTO RECOMMENDER PIPELINE - BENCHMARK REPORT
+  Date: 2026-05-22 23:04:02
+  Docker version: 29.5.1
+========================================================================
+
+--- SYSTEM INFO ---
+CPU cores: 8
+Memory: 15Gi total
+Disk: 97G total, 63% used
+
+--- SERVICES ---
+NAME                                                 CPU %     MEM USAGE / LIMIT     MEM %
+otto-dashboard                                       1.00%     75.04MiB / 1GiB       7.33%
+otto-spark-streaming                                 285.02%   1.309GiB / 8GiB       16.36%
+mining-on-massive-datasets-ptit-project-kafka-ui-1   0.12%     364.3MiB / 15.34GiB   2.32%
+otto-api                                             3.92%     114.8MiB / 2GiB       5.61%
+kafka                                                4.14%     681.4MiB / 2GiB       33.27%
+mining-on-massive-datasets-ptit-project-postgres-1   0.11%     38.77MiB / 2GiB       1.89%
+mining-on-massive-datasets-ptit-project-redis-1      1.18%     13.9MiB / 1.5GiB      0.90%
+
+--- KAFKA PRODUCER ---
+25800 records sent, 5143.5 records/sec (5.02 MB/sec), 7959.7 ms avg latency, 10028.0 ms max latency.
+26595 records sent, 5316.9 records/sec (5.19 MB/sec), 5688.4 ms avg latency, 6271.0 ms max latency.
+200000 records sent, 2882.7 records/sec (2.82 MB/sec), 9328.43 ms avg latency, 15233.00 ms max latency, 9819 ms 50th, 13192 ms 95th, 14479 ms 99th, 15203 ms 99.9th.
+
+--- SPARK STREAMING PERFORMANCE ---
+  No spark_metrics found (is Spark streaming running?)
+  Debug: {"found": false}
+
+--- E2E PIPELINE LATENCY ---
+  events=3686 avg_age=86s p50=86s p95=160s
+
+--- RESOURCE USAGE (AVG during test) ---
+  No docker stats CSV found (looked for stats_*.csv)
+
+--- SLA VERDICT ---
+  API P95 latency:      5318.572285499999ms  [FAIL]
+  API error rate:       0.00%  [PASS]
+  Kafka producer TPS:   2882.7  [FAIL]
+  Kafka P95 latency:    13192ms
+  Spark stability:      N/A (no spark_metrics found)
+  E2E latency P50:      86s  [PASS]
+  E2E latency P95:      160s  [PASS]
+
+========================================================================
+  Report saved to: /home/duongvct/Documents/workspace/PTIT/Y4T2/mining-on-massive-datasets-ptit-project/benchmark/results/report_20260522_230402.txt
+========================================================================

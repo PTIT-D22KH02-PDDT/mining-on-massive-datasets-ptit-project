@@ -6,18 +6,20 @@ Usage:
     python -m src.simulator.client --file test.jsonl --sessions 10 --speed 5
 """
 
-import asyncio
 import argparse
+import asyncio
 import json
 import logging
-import time
 import random
+import time
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import httpx
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+)
 logger = logging.getLogger("simulator")
 
 
@@ -39,7 +41,9 @@ async def replay_session(
             "session_id": session_id,
             "aid": event["aid"],
             "type": event["type"],
-            "ts": int(time.time() * 1000), # Use current time for streaming compatibility
+            "ts": int(
+                time.time() * 1000
+            ),  # Use current time for streaming compatibility
         }
 
         try:
@@ -48,14 +52,16 @@ async def replay_session(
                 data = resp.json()
                 recs_clicks = data["recommendations"].get("clicks", [])[:5]
                 logger.info(
-                    f"  [{session_id}] Event {i+1}/{len(events)}: "
+                    f"  [{session_id}] Event {i + 1}/{len(events)}: "
                     f"{event['type']:6s} aid={event['aid']:>8d} - "
                     f"model={data['model_used']}, "
                     f"latency={data['latency_ms']:.1f}ms, "
                     f"top5_clicks={recs_clicks}"
                 )
             else:
-                logger.warning(f"  [{session_id}] HTTP {resp.status_code}: {resp.text[:100]}")
+                logger.warning(
+                    f"  [{session_id}] HTTP {resp.status_code}: {resp.text[:100]}"
+                )
         except Exception as e:
             logger.error(f"  [{session_id}] Error: {e}")
 
@@ -99,7 +105,9 @@ async def run_simulator(
 
     async def bounded_replay(client, session_data):
         async with sem:
-            await replay_session(client, api_url, session_data, speed, delay_between_events)
+            await replay_session(
+                client, api_url, session_data, speed, delay_between_events
+            )
 
     async with httpx.AsyncClient() as client:
         # Check API health first
@@ -120,7 +128,7 @@ async def run_simulator(
         logger.info("=" * 60)
         logger.info(
             f"Done! {len(sessions)} sessions, {total_events} events in {elapsed:.1f}s "
-            f"({total_events/elapsed:.1f} events/sec)"
+            f"({total_events / elapsed:.1f} events/sec)"
         )
 
         # Show final stats
@@ -134,12 +142,24 @@ async def run_simulator(
 
 def main():
     parser = argparse.ArgumentParser(description="OTTO Session Simulator")
-    parser.add_argument("--file", default="literature-review/duong/test.jsonl", help="Path to JSONL file")
+    parser.add_argument(
+        "--file",
+        default="datasets/otto-recommender-system/test.jsonl",
+        help="Path to JSONL file",
+    )
     parser.add_argument("--api", default="http://localhost:8000", help="API server URL")
-    parser.add_argument("--sessions", type=int, default=10, help="Number of sessions to replay")
-    parser.add_argument("--concurrency", type=int, default=3, help="Max concurrent sessions")
-    parser.add_argument("--speed", type=float, default=5.0, help="Speed multiplier (0=no delay)")
-    parser.add_argument("--delay", type=float, default=0.3, help="Base delay between events (seconds)")
+    parser.add_argument(
+        "--sessions", type=int, default=10, help="Number of sessions to replay"
+    )
+    parser.add_argument(
+        "--concurrency", type=int, default=3, help="Max concurrent sessions"
+    )
+    parser.add_argument(
+        "--speed", type=float, default=5.0, help="Speed multiplier (0=no delay)"
+    )
+    parser.add_argument(
+        "--delay", type=float, default=0.3, help="Base delay between events (seconds)"
+    )
     args = parser.parse_args()
 
     asyncio.run(

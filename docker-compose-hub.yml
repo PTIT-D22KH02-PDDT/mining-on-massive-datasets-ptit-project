@@ -1,67 +1,149 @@
-version: '3.8'
-
 services:
-  # 1. Infrastructure Services
-  postgres:
-    image: postgres:16-alpine
-    container_name: otto-postgres
-    environment:
-      - POSTGRES_DB=otto_recommender
-      - POSTGRES_USER=otto
-      - POSTGRES_PASSWORD=otto123
+  kafka:
+    image: docker.io/apache/kafka:4.1.1
+    container_name: kafka
     ports:
-      - "5432:5432"
+      - "29092:29092"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d
+      - ./kafka_data:/var/lib/kafka/data
+    environment:
+      - KAFKA_NODE_ID=0
+      - KAFKA_PROCESS_ROLES=controller,broker
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://${KAFKA_HOST_EXTERNAL:-localhost}:29092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_LOG_DIRS=/var/lib/kafka/data
+      - KAFKA_HEAP_OPTS=-Xms2G -Xmx2G
+      - KAFKA_OPTS=-XX:+UseG1GC -XX:MaxGCPauseMillis=100 -Djava.net.preferIPv4Stack=true
+      - KAFKA_NUM_IO_THREADS=8
+      - KAFKA_NUM_NETWORK_THREADS=6
+      - KAFKA_NUM_REPLICA_FETCHERS=2
+      - KAFKA_LOG_RETENTION_HOURS=2
+      - KAFKA_LOG_RETENTION_BYTES=-1
+      - KAFKA_LOG_SEGMENT_DELETE_DELAY_MS=10000
+      - KAFKA_LOG_FLUSH_INTERVAL_MESSAGES=10000
+      - KAFKA_LOG_FLUSH_INTERVAL_MS=1000
+      - KAFKA_LOG_SEGMENT_BYTES=536870912
+    networks:
+      - spark-net
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4g
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    ports:
+      - "8989:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: always
+    environment:
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
     networks:
       - spark-net
 
   redis:
     image: redis:7-alpine
-    container_name: otto-redis
     ports:
       - "6379:6379"
+    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1.5g
 
-  kafka:
-    image: apache/kafka:latest
-    container_name: otto-kafka
+  postgres:
+    image: postgres:16-alpine
     ports:
-      - "9092:9092"
+      - "5432:5432"
     environment:
-      - KAFKA_NODE_ID=1
-      - KAFKA_PROCESS_ROLES=broker,controller
-      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
-      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
+      - POSTGRES_USER=${POSTGRES_USER:-otto}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init/01_create_tables.sql:/docker-entrypoint-initdb.d/01_create_tables.sql
+      - ./postgres-init/02_cleanup_old_data.sql:/docker-entrypoint-initdb.d/02_cleanup_old_data.sql
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-otto} -d ${POSTGRES_DB:-otto_recommender}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2g
 
-  # 2. Application Services (PULLED FROM DOCKER HUB)
+  # === Application Services (PULLED FROM DOCKER HUB) ===
+
   api:
     image: ${DOCKER_USERNAME}/otto-api:${DOCKER_TAG:-latest}
     container_name: otto-api
     command: python3 src/api/main.py
     ports:
       - "8000:8000"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       - REDIS_HOST=redis
+      - REDIS_PORT=${REDIS_PORT:-6379}
       - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
+      - POSTGRES_USER=${POSTGRES_USER:-otto}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SASREC_REMOTE_URL=${SASREC_REMOTE_URL}
-    volumes:
-      - ./datasets:/opt/app/datasets
-    depends_on:
-      - postgres
-      - redis
-      - kafka
+      - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request, sys; r=urllib.request.urlopen('http://localhost:8000/api/health'); sys.exit(0 if r.status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2g
+        reservations:
+          cpus: '0.5'
+          memory: 512m
 
   dashboard:
     image: ${DOCKER_USERNAME}/otto-dashboard:${DOCKER_TAG:-latest}
@@ -69,42 +151,89 @@ services:
     command: streamlit run streamlit_app.py
     ports:
       - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
     environment:
       - API_URL=http://api:8000
-    depends_on:
-      - api
     networks:
       - spark-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(5); s.connect(('localhost',8501)); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1g
+        reservations:
+          cpus: '0.25'
+          memory: 256m
 
   spark-streaming:
     image: ${DOCKER_USERNAME}/otto-spark-streaming:${DOCKER_TAG:-latest}
     container_name: otto-spark-streaming
     command: python3 src/streaming/spark_streaming_job.py
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - POSTGRES_HOST=postgres
-    volumes:
-      - ./datasets:/opt/app/datasets
-      - ./spark-checkpoints:/tmp/spark-checkpoints
     depends_on:
-      - kafka
-      - postgres
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      setup-jobs:
+        condition: service_completed_successfully
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
+      - POSTGRES_USER=${POSTGRES_USER:-otto}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    volumes:
+      - ./spark-checkpoints:/tmp/spark-checkpoints
+      - ./datasets:/opt/app/datasets
     networks:
       - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8g
+        reservations:
+          cpus: '1.0'
+          memory: 2g
 
   setup-jobs:
     image: ${DOCKER_USERNAME}/otto-setup:${DOCKER_TAG:-latest}
-    container_name: otto-setup
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - POSTGRES_HOST=postgres
-    volumes:
-      - ./datasets:/opt/app/datasets
+    container_name: otto-setup-jobs
+    command: >
+      bash -c "
+      echo 'Creating Kafka topics...' &&
+      python3 src/scripts/create_kafka_topic.py &&
+      echo 'Running funnel analysis...' &&
+      python3 src/batch/funnel_analysis.py &&
+      echo 'Seeding popular items...' &&
+      python3 src/batch/seed_popular_items.py &&
+      echo 'Setup complete!'
+      "
     depends_on:
-      - kafka
-      - postgres
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-otto}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
+      - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     networks:
       - spark-net
+    volumes:
+      - ./datasets:/opt/app/datasets
+    restart: "no"
 
 networks:
   spark-net:
@@ -112,4 +241,3 @@ networks:
 
 volumes:
   pgdata:
-  spark-checkpoints:

@@ -3,7 +3,13 @@ import pandas as pd
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
+import json
+import logging
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="OTTO Recommender Pipeline Dashboard",
@@ -11,23 +17,58 @@ st.set_page_config(
     layout="wide",
 )
 
+st_autorefresh(interval=5000, key="monitoring_refresh")
+
 import os
 API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
 st.sidebar.caption(f"Connected to API: {API_URL}")
 
+if "last_updated" not in st.session_state:
+    st.session_state.last_updated = None
+
 
 def get_stats():
     try:
-        resp = requests.get(f"{API_URL}/api/stats", timeout=2)
+        resp = requests.get(f"{API_URL}/api/stats", timeout=5)
+        resp.raise_for_status()
+        st.session_state.last_updated = datetime.now()
         return resp.json()
-    except:
+    except requests.exceptions.Timeout:
+        logger.error("API stats request timeout")
         return None
+    except requests.exceptions.ConnectionError:
+        logger.error("Cannot connect to API for stats")
+        return None
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"API stats HTTP error: {e}")
+        return None
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON response from API stats")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error fetching stats: {e}")
+        return None
+
 
 def get_health():
     try:
-        resp = requests.get(f"{API_URL}/api/health", timeout=2)
+        resp = requests.get(f"{API_URL}/api/health", timeout=5)
+        resp.raise_for_status()
         return resp.json()
-    except:
+    except requests.exceptions.Timeout:
+        logger.error("API health request timeout")
+        return None
+    except requests.exceptions.ConnectionError:
+        logger.error("Cannot connect to API for health")
+        return None
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"API health HTTP error: {e}")
+        return None
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON response from API health")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error fetching health: {e}")
         return None
 
 st.title("OTTO Recommender Hub")
@@ -43,16 +84,22 @@ view = st.sidebar.radio("Go to", [
     "Advanced Analytics", 
     "Anomaly Detection", 
     "Recommendation Demo", 
-    "Spark Performance"
+    "Spark Performance",
+    "Model Evaluation",
+    "Item Insights"
 ])
 
 st.sidebar.markdown("---")
 st.sidebar.header("System Health")
 health = get_health()
 if health:
-    st.sidebar.success(f"API: {health['status'].upper()}")
-    st.sidebar.info(f"Redis: {health['redis'].upper()}")
-    st.sidebar.info(f"Postgres: {health['postgres'].upper()}")
+    st.sidebar.success(f"API: {health.get('status', 'unknown').upper()}")
+    redis_status = health.get('redis', {}).get('status', 'unknown')
+    pg_status = health.get('postgres', {}).get('status', 'unknown')
+    redis_mem = health.get('redis', {}).get('memory_mb', '-')
+    pg_conns = health.get('postgres', {}).get('active_connections', '-')
+    st.sidebar.info(f"Redis: {redis_status.upper()} [{redis_mem}]")
+    st.sidebar.info(f"Postgres: {pg_status.upper()} [{pg_conns} conns]")
 else:
     st.sidebar.error("API: OFFLINE")
 
@@ -60,11 +107,23 @@ st.sidebar.markdown("---")
 if st.sidebar.button("Manual Refresh"):
     st.rerun()
 
-# Global Data Fetching
-stats = get_stats()
+# Data Freshness Indicator
+if st.session_state.last_updated:
+    ago = (datetime.now() - st.session_state.last_updated).total_seconds()
+    if ago < 10:
+        st.sidebar.success(f"Data fresh ({ago:.0f}s ago)")
+    elif ago < 30:
+        st.sidebar.warning(f"Data stale ({ago:.0f}s ago)")
+    else:
+        st.sidebar.error(f"Data outdated ({ago:.0f}s ago)")
+else:
+    st.sidebar.info("No data fetched yet")
+
+# Lazy-Load Per Tab: each view fetches its own data
 
 # --- View: Dashboard Overview ---
 if view == "Dashboard Overview":
+    stats = get_stats()
     if stats:
         # 1. Key Metrics (Combined: 5 columns including Hit Rate)
         m1, m2, m3, m4, m5 = st.columns(5)
@@ -80,7 +139,7 @@ if view == "Dashboard Overview":
             st.metric("Avg Latency", f"{avg_latency:.1f} ms")
         with m5:
             hit_stats = stats.get("hit_rate_stats", {})
-            hr = hit_stats.get("hit_rate", 0) * 100 if hit_stats else 0
+            hr = (hit_stats.get("hit_rate") or 0) * 100 if hit_stats else 0
             st.metric("Hit Rate", f"{hr:.2f}%")
 
         st.markdown("---")
@@ -127,6 +186,7 @@ if view == "Dashboard Overview":
 # --- View: Advanced Analytics ---
 elif view == "Advanced Analytics":
     st.subheader("Advanced Analytics")
+    stats = get_stats()
     if stats:
         t1, t2, t3, t4, t5 = st.tabs(["Conversion Funnel", "Model Performance", "Hourly Traffic", "Session Insights", "Online Evaluation"])
         
@@ -157,9 +217,9 @@ elif view == "Advanced Analytics":
                 st.plotly_chart(fig, use_container_width=True)
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Click -> Cart", f"{f_data.get('click_to_cart_rate', 0)*100:.1f}%")
-                c2.metric("Cart -> Order", f"{f_data.get('cart_to_order_rate', 0)*100:.1f}%")
-                c3.metric("Click -> Order", f"{f_data.get('click_to_order_rate', 0)*100:.1f}%")
+                c1.metric("Click -> Cart", f"{(f_data.get('click_to_cart_rate') or 0)*100:.1f}%")
+                c2.metric("Cart -> Order", f"{(f_data.get('cart_to_order_rate') or 0)*100:.1f}%")
+                c3.metric("Click -> Order", f"{(f_data.get('click_to_order_rate') or 0)*100:.1f}%")
             else:
                 st.info("No funnel data available.")
             
@@ -202,6 +262,9 @@ elif view == "Advanced Analytics":
             if hourly:
                 df_h = pd.DataFrame(hourly)
                 df_h['window_start'] = pd.to_datetime(df_h['window_start'])
+                # Deduplicate: keep latest row per window (streaming writes cumulative updates)
+                df_h = df_h.sort_values('window_start').drop_duplicates(subset='window_start', keep='last')
+                df_h = df_h.sort_values('window_start')
                 st.plotly_chart(px.area(df_h, x='window_start', y=['total_clicks', 'total_carts', 'total_orders'], template="plotly_dark"), use_container_width=True)
             else:
                 st.info("No hourly traffic data.")
@@ -219,12 +282,12 @@ elif view == "Advanced Analytics":
             if hr_stats and hr_stats.get("total_actions", 0) > 0:
                 st.subheader("Real-time Recommendation Accuracy")
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Hit Rate (Conversion)", f"{hr_stats.get('hit_rate', 0)*100:.2f}%")
+                c1.metric("Hit Rate (Conversion)", f"{(hr_stats.get('hit_rate') or 0)*100:.2f}%")
                 c2.metric("Total Hits", hr_stats.get("total_hits", 0))
                 c3.metric("Total Eval Actions", hr_stats.get("total_actions", 0))
                 
                 # Your awesome visual gauge chart
-                rate = hr_stats.get('hit_rate', 0) * 100
+                rate = (hr_stats.get('hit_rate') or 0) * 100
                 st.plotly_chart(go.Figure(go.Indicator(
                     mode = "gauge+number",
                     value = rate,
@@ -237,6 +300,7 @@ elif view == "Advanced Analytics":
 # --- View: Anomaly Detection ---
 elif view == "Anomaly Detection":
     st.subheader("Real-time Anomaly Detection")
+    stats = get_stats()
     if stats:
         anomalies = stats.get("anomaly_logs", [])
         if anomalies:
@@ -283,22 +347,214 @@ elif view == "Recommendation Demo":
 # --- View: Spark Performance ---
 elif view == "Spark Performance":
     st.subheader("Spark Streaming Metrics")
+    stats = get_stats()
     if stats:
         spark = stats.get("spark_metrics", [])
         if spark:
             df_spark = pd.DataFrame(spark)
             df_spark['timestamp'] = pd.to_datetime(df_spark['timestamp'])
-            
-            st.markdown("**Processing vs Input Rate (rows/sec)**")
-            # Sửa lại process_rows_per_second cho chuẩn schema DB
-            st.plotly_chart(px.line(df_spark, x='timestamp', y=['input_rows_per_second', 'process_rows_per_second'], template="plotly_dark"), use_container_width=True)
-            
+            df_spark = df_spark.sort_values('timestamp')
+
+            # 1. Input vs Processing Rate (line chart)
+            st.markdown("**Input vs Processing Rate (rows/sec)**")
+            fig_rate = px.line(df_spark, x='timestamp',
+                              y=['input_rows_per_second', 'process_rows_per_second'],
+                              template="plotly_dark", markers=True,
+                              labels={'input_rows_per_second': 'Input (rows/s)',
+                                      'process_rows_per_second': 'Process (rows/s)'})
+            st.plotly_chart(fig_rate, use_container_width=True)
+
+            # 2. Throughput Efficiency Ratio (process/input)
+            df_spark['throughput_ratio'] = (
+                df_spark['process_rows_per_second'] / df_spark['input_rows_per_second'].replace(0, float('nan'))
+            )
+            st.markdown("**Processing Efficiency Ratio (process/input)**")
+            fig_eff = px.area(df_spark, x='timestamp', y='throughput_ratio',
+                            template="plotly_dark", color_discrete_sequence=['#00CC96'])
+            fig_eff.update_layout(height=300)
+            st.plotly_chart(fig_eff, use_container_width=True)
+
+            # 3. Batch Duration (area chart + alert)
             st.markdown("**Batch Duration (ms)**")
-            # My area chart for duration is visually better for time series
-            fig_dur = px.area(df_spark, x='timestamp', y='batch_duration_ms', template="plotly_dark", color_discrete_sequence=['#FFA15A'])
+            ALERT_THRESHOLD_MS = 10000
+            slow_batches = df_spark[df_spark['batch_duration_ms'] > ALERT_THRESHOLD_MS]
+            if not slow_batches.empty:
+                st.warning(f"⚠️ {len(slow_batches)} batches exceeded {ALERT_THRESHOLD_MS}ms threshold")
+            fig_dur = px.area(df_spark, x='timestamp', y='batch_duration_ms',
+                            template="plotly_dark", color_discrete_sequence=['#FFA15A'])
             st.plotly_chart(fig_dur, use_container_width=True)
+
+            # 4. Recent Metrics Table
+            st.markdown("**Recent Batch Metrics**")
+            display_cols = ['timestamp', 'batch_id', 'input_rows_per_second',
+                          'process_rows_per_second', 'batch_duration_ms']
+            available = [c for c in display_cols if c in df_spark.columns]
+            st.dataframe(df_spark[available].tail(10).sort_values('timestamp', ascending=False),
+                        use_container_width=True)
         else:
             st.info("Waiting for Spark performance data...")
+
+# --- View: Model Evaluation ---
+elif view == "Model Evaluation":
+    st.subheader("Model Quality Metrics")
+    stats = get_stats()
+    if stats:
+        online_metrics_summary = stats.get("online_metrics_summary", [])
+        online_metrics_trend = stats.get("online_metrics_trend", [])
+
+        if online_metrics_summary:
+            df_metrics = pd.DataFrame(online_metrics_summary)
+
+            st.markdown("**Recall@20 by Recommendation Strategy**")
+            recall_df = df_metrics[df_metrics['metric_name'] == 'recall@20']
+            if not recall_df.empty:
+                fig = px.bar(
+                    recall_df, x='model_used', y='avg_value', color='model_used',
+                    template="plotly_dark", labels={'avg_value': 'Recall@20', 'model_used': 'Model'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No Recall@20 data available yet.")
+
+            st.markdown("**NDCG@20 by Model and Event Type**")
+            ndcg_df = df_metrics[df_metrics['metric_name'] == 'ndcg@20']
+            if not ndcg_df.empty:
+                fig = px.bar(
+                    ndcg_df, x='model_used', y='avg_value', color='event_type',
+                    barmode='group', template="plotly_dark", labels={'avg_value': 'NDCG@20'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("**MRR@20 by Model**")
+            mrr_df = df_metrics[df_metrics['metric_name'] == 'mrr@20']
+            if not mrr_df.empty:
+                fig = px.bar(
+                    mrr_df, x='model_used', y='avg_value', color='model_used',
+                    template="plotly_dark", labels={'avg_value': 'MRR@20'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("**Overall Metrics Summary**")
+            st.dataframe(df_metrics, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("**Overall Weighted Recall@20**")
+            wr_df = df_metrics[df_metrics['metric_name'] == 'weighted_recall@20']
+            if not wr_df.empty:
+                avg_wr = wr_df['avg_value'].mean() * 100
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=avg_wr,
+                    title={'text': "Weighted Recall@20 (%)"},
+                    gauge={
+                        'axis': {'range': [0, 100]},
+                        'bar': {'color': "darkblue"},
+                        'steps': [
+                            {'range': [0, 5], 'color': "red"},
+                            {'range': [5, 15], 'color': "yellow"},
+                            {'range': [15, 100], 'color': "green"}
+                        ]
+                    }
+                )).update_layout(template="plotly_dark", height=300)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No Weighted Recall@20 data available yet.")
+        else:
+            st.info("No online evaluation metrics available yet. Start sending cart/order events to see model quality metrics.")
+
+        if online_metrics_trend:
+            st.markdown("---")
+            st.markdown("**Recall@20 Trend by Model**")
+            df_trend = pd.DataFrame(online_metrics_trend)
+            if not df_trend.empty and 'latest_at' in df_trend.columns:
+                df_trend['latest_at'] = pd.to_datetime(df_trend['latest_at'])
+                fig = px.line(
+                    df_trend, x='latest_at', y='avg_value', color='model_used',
+                    template="plotly_dark", markers=True,
+                    labels={'avg_value': 'Recall@20', 'model_used': 'Model'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Cannot fetch stats from API. Ensure FastAPI is running.")
+
+# --- View: Item Insights ---
+elif view == "Item Insights":
+    st.subheader("Item Conversion Insights")
+    stats = get_stats()
+    if stats:
+        item_insights = stats.get("item_insights", [])
+        if item_insights:
+            df_items = pd.DataFrame(item_insights)
+            df_items['aid'] = df_items['aid'].astype(str)
+
+            MIN_CLICKS = st.slider("Minimum clicks to include", min_value=0, max_value=100, value=10)
+            df_filtered = df_items[df_items['total_clicks'] >= MIN_CLICKS]
+
+            st.markdown("**Hidden Gems — High Conversion, Low Visibility**")
+            st.caption("Items với conversion rate cao nhưng ít click — ứng viên để boost recommendation")
+            if not df_filtered.empty:
+                fig_scatter = px.scatter(
+                    df_filtered, x='total_clicks', y='click_to_order_rate',
+                    size='total_orders', color='click_to_order_rate',
+                    hover_data=['aid'], template="plotly_dark",
+                    labels={'total_clicks': 'Total Clicks', 'click_to_order_rate': 'Click-to-Order Rate'},
+                    color_continuous_scale='Viridis'
+                )
+                fig_scatter.add_hline(
+                    y=df_filtered['click_to_order_rate'].quantile(0.75),
+                    line_dash="dash", line_color="yellow",
+                    annotation_text="Top 25% Conversion"
+                )
+                fig_scatter.add_vline(
+                    x=df_filtered['total_clicks'].quantile(0.25),
+                    line_dash="dash", line_color="red",
+                    annotation_text="Bottom 25% Clicks"
+                )
+                st.plotly_chart(fig_scatter, use_container_width=True)
+
+                hidden_gems = df_filtered[
+                    (df_filtered['click_to_order_rate'] >= df_filtered['click_to_order_rate'].quantile(0.75)) &
+                    (df_filtered['total_clicks'] <= df_filtered['total_clicks'].quantile(0.25))
+                ]
+                if not hidden_gems.empty:
+                    st.success(f"Found {len(hidden_gems)} hidden gems")
+                    st.dataframe(hidden_gems[['aid', 'total_clicks', 'total_orders', 'click_to_order_rate']].head(10), use_container_width=True)
+            else:
+                st.info(f"No items with >= {MIN_CLICKS} clicks.")
+
+            st.markdown("---")
+            st.markdown("**Top 20 Items by Click-to-Order Rate**")
+            if not df_filtered.empty:
+                top_conv = df_filtered.nlargest(20, 'click_to_order_rate')
+                fig_bar = px.bar(
+                    top_conv, x='aid', y='click_to_order_rate', color='total_orders',
+                    template="plotly_dark", labels={'click_to_order_rate': 'Click-to-Order Rate', 'aid': 'Item ID'},
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("No data available.")
+
+            st.markdown("---")
+            st.markdown("**Popularity vs Conversion — Bubble Chart**")
+            st.caption("Bubble size = total orders. Cho thấy mối quan hệ giữa popularity và actual conversion")
+            if not df_filtered.empty:
+                fig_bubble = px.scatter(
+                    df_filtered, x='total_clicks', y='click_to_cart_rate',
+                    size='total_orders', color='total_carts',
+                    hover_data=['aid'], template="plotly_dark",
+                    labels={'total_clicks': 'Total Clicks', 'click_to_cart_rate': 'Click-to-Cart Rate'},
+                    color_continuous_scale='Plasma'
+                )
+                fig_bubble.update_layout(yaxis_tickformat='.0%')
+                st.plotly_chart(fig_bubble, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("**All Item Metrics**")
+            st.dataframe(df_filtered.sort_values('total_clicks', ascending=False).head(50), use_container_width=True)
+        else:
+            st.info("No item insights data yet. Run the Spark streaming pipeline to populate stats_items.")
+    else:
+        st.warning("Cannot fetch stats from API. Ensure FastAPI is running.")
 
 st.markdown("---")
 st.caption("OTTO Recommender Hub - Unified Monitoring & Control")

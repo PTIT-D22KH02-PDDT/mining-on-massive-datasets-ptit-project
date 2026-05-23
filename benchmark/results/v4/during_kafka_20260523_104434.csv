@@ -1,0 +1,22 @@
+timestamp,name,cpu_percent,mem_usage,mem_percent,net_io
+2026-05-23_10:45:06,otto-spark-streaming,0.46%,406.3MiB / 8GiB,4.96%,59.8MB / 151kB
+2026-05-23_10:45:06,otto-dashboard,0.28%,78.09MiB / 1GiB,7.63%,9.27kB / 766B
+2026-05-23_10:45:06,mining-on-massive-datasets-ptit-project-kafka-ui-1,0.07%,389MiB / 15.34GiB,2.48%,174kB / 2.62MB
+2026-05-23_10:45:06,otto-api,0.22%,151.9MiB / 2GiB,7.42%,141kB / 80.5kB
+2026-05-23_10:45:06,mining-on-massive-datasets-ptit-project-postgres-1,1.03%,65.56MiB / 2GiB,3.20%,80.4kB / 42.6kB
+2026-05-23_10:45:06,kafka,241.28%,661.8MiB / 4GiB,16.16%,33.9kB / 64.5kB
+2026-05-23_10:45:06,mining-on-massive-datasets-ptit-project-redis-1,0.47%,17.95MiB / 1.5GiB,1.17%,49.5kB / 45.2kB
+2026-05-23_10:45:13,otto-spark-streaming,289.34%,479.5MiB / 8GiB,5.85%,60.9MB / 155kB
+2026-05-23_10:45:13,otto-dashboard,0.63%,78.09MiB / 1GiB,7.63%,9.27kB / 766B
+2026-05-23_10:45:13,mining-on-massive-datasets-ptit-project-kafka-ui-1,0.07%,389MiB / 15.34GiB,2.48%,174kB / 2.62MB
+2026-05-23_10:45:13,otto-api,0.21%,151.9MiB / 2GiB,7.42%,149kB / 84.8kB
+2026-05-23_10:45:13,mining-on-massive-datasets-ptit-project-postgres-1,0.01%,65.57MiB / 2GiB,3.20%,80.7kB / 42.8kB
+2026-05-23_10:45:13,kafka,401.69%,924.8MiB / 4GiB,22.58%,37.4kB / 1.12MB
+2026-05-23_10:45:13,mining-on-massive-datasets-ptit-project-redis-1,0.83%,17.95MiB / 1.5GiB,1.17%,51.2kB / 47.9kB
+2026-05-23_10:45:20,otto-spark-streaming,347.66%,744.4MiB / 8GiB,9.09%,61.9MB / 157kB
+2026-05-23_10:45:20,otto-dashboard,0.51%,78.09MiB / 1GiB,7.63%,9.27kB / 766B
+2026-05-23_10:45:20,mining-on-massive-datasets-ptit-project-kafka-ui-1,0.07%,389MiB / 15.34GiB,2.48%,174kB / 2.62MB
+2026-05-23_10:45:20,otto-api,0.19%,151.9MiB / 2GiB,7.42%,149kB / 85.4kB
+2026-05-23_10:45:20,mining-on-massive-datasets-ptit-project-postgres-1,0.00%,65.57MiB / 2GiB,3.20%,80.7kB / 42.8kB
+2026-05-23_10:45:20,kafka,356.13%,882.6MiB / 4GiB,21.55%,39.8kB / 2.17MB
+2026-05-23_10:45:20,mining-on-massive-datasets-ptit-project-redis-1,0.80%,18.45MiB / 1.5GiB,1.20%,51.8kB / 48.1kB

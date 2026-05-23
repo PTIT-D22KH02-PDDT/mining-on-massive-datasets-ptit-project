@@ -1,6 +1,5 @@
 
 import logging
-from pyspark.sql import SparkSession
 
 
 class Log4j:
@@ -9,7 +8,8 @@ class Log4j:
     :param spark_session: SparkSession object.
     """
 
-    def __init__(self, spark_session: SparkSession):
+    def __init__(self, spark_session):
+        from pyspark.sql import SparkSession
         # get spark app details with which to prefix all messages
         conf = spark_session.sparkContext.getConf()
         app_id = conf.get('spark.app.id', 'n/a')

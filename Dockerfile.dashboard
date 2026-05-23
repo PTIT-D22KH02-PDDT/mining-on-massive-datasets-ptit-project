@@ -1,0 +1,16 @@
+FROM python:3.12-alpine
+
+WORKDIR /opt/app
+
+RUN pip install --no-cache-dir uv
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --extra dashboard
+
+COPY src/ src/
+COPY config/ config/
+COPY streamlit_app.py .
+
+ENV PATH="/opt/app/.venv/bin:$PATH"
+
+CMD ["streamlit", "run", "streamlit_app.py"]

@@ -4,6 +4,29 @@ Dự án đã được cấu hình hóa hoàn toàn bằng Docker Compose. Chỉ
 
 ---
 
+
+Tạo thư mục lưu dữ liệu Kafka
+
+```bash
+
+sudo chown -R 1000:1000 ./kafka_data
+```
+
+Chạy uv sync toàn bộ extra 
+
+```bash
+uv sync --all-extras
+```
+
+
+Nếu chạy Local (Pycharm):
+
+```bash
+uv run --extra api python src/api/main.py
+uv run --extra spark python src/streaming/spark_streaming_job.py
+uv run src/simulator/client.py (global khong can phai them --extra)
+```
+
 ## 1. Khởi động Toàn bộ Hệ thống
 
 Đảm bảo bạn đã cài đặt Docker và Docker Compose. Mở terminal tại thư mục gốc của dự án và chạy:
