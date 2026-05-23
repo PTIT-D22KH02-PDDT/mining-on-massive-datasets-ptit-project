@@ -210,7 +210,7 @@ __marimo__/
 
 **/kafka_data
 
-**/datasets
+**/datasets/*
 test/*
 
 uv.lock
@@ -218,3 +218,5 @@ uv.lock
 **/spark-checkpoints
 
 **/.opencode
+**/cache/**
+**/**.pdf
