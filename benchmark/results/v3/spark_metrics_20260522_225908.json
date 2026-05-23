@@ -1,0 +1,25 @@
+{
+  "rows": 2,
+  "data": [
+    {
+      "id": 1,
+      "query_id": "7e385f12-1e4b-41b6-bb3e-0bec735d9d2d",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 0,
+      "input_rows_per_second": 0.0,
+      "process_rows_per_second": 550.8997787302521,
+      "batch_duration_ms": 129244,
+      "timestamp": "2026-05-22 16:02:29.402451"
+    },
+    {
+      "id": 2,
+      "query_id": "7e385f12-1e4b-41b6-bb3e-0bec735d9d2d",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 1,
+      "input_rows_per_second": 1004.421837072311,
+      "process_rows_per_second": 1719.6971702358578,
+      "batch_duration_ms": 75554,
+      "timestamp": "2026-05-22 16:03:44.689799"
+    }
+  ]
+}

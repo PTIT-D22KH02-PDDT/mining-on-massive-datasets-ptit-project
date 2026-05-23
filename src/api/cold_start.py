@@ -4,8 +4,8 @@ Used when session is too short for SASRec (< 3 events).
 """
 
 import logging
-from typing import Dict, List
 from collections import defaultdict
+from typing import Dict, List
 
 from src.api.db import Database
 
@@ -28,7 +28,9 @@ class ColdStartRecommender:
         cache_key = f"{event_type}_{top_k}"
         if cache_key not in self._popular_cache:
             items = self.db.get_popular_items(event_type, top_k)
-            self._popular_cache[cache_key] = items if items else FALLBACK_POPULAR[:top_k]
+            self._popular_cache[cache_key] = (
+                items if items else FALLBACK_POPULAR[:top_k]
+            )
         return self._popular_cache[cache_key]
 
     def recommend_empty_session(self, top_k: int = 20) -> Dict[str, List[int]]:
@@ -50,7 +52,9 @@ class ColdStartRecommender:
         # Try covisitation first
         if self.covisitation:
             try:
-                covis_result = self.covisitation.recommend_multi_objective(session_aids, top_k)
+                covis_result = self.covisitation.recommend_multi_objective(
+                    session_aids, top_k
+                )
                 result = covis_result
             except Exception as e:
                 logger.warning(f"Covisitation failed: {e}")

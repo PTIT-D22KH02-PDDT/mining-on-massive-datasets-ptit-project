@@ -3,8 +3,8 @@ Database helper — PostgreSQL connection and common queries.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
+from typing import Any, Dict, List, Optional
 
 import psycopg2
 import psycopg2.extras
@@ -18,14 +18,21 @@ class Database:
     def __init__(
         self,
         host: str = None,
-        port: int = 5432,
-        dbname: str = "otto_recommender",
-        user: str = "otto",
-        password: str = "otto123",
+        port: int = None,
+        dbname: str = None,
+        user: str = None,
+        password: str = None,
     ):
         import os
+
         host = host or os.getenv("POSTGRES_HOST", "localhost")
-        self.conn_params = dict(host=host, port=port, dbname=dbname, user=user, password=password)
+        port = port or int(os.getenv("POSTGRES_PORT", "5432"))
+        dbname = dbname or os.getenv("POSTGRES_DB", "otto_recommender")
+        user = user or os.getenv("POSTGRES_USER", "otto")
+        password = password or os.getenv("POSTGRES_PASSWORD", "otto123")
+        self.conn_params = dict(
+            host=host, port=port, dbname=dbname, user=user, password=password
+        )
         self._conn = None
 
     def _get_conn(self):
@@ -64,7 +71,15 @@ class Database:
                         (session_id, model_used, session_length, predicted_clicks, predicted_carts, predicted_orders, latency_ms)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (session_id, model_used, session_length, predicted_clicks, predicted_carts, predicted_orders, latency_ms),
+                    (
+                        session_id,
+                        model_used,
+                        session_length,
+                        predicted_clicks,
+                        predicted_carts,
+                        predicted_orders,
+                        latency_ms,
+                    ),
                 )
         except Exception as e:
             logger.error(f"Failed to log prediction: {e}")
@@ -80,7 +95,9 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to log event: {e}")
 
-    def get_popular_items(self, event_type: str = "clicks", limit: int = 20) -> List[int]:
+    def get_popular_items(
+        self, event_type: str = "clicks", limit: int = 20
+    ) -> List[int]:
         """Get pre-computed popular items (AIDs only). Sort by count DESC."""
         try:
             with self.cursor() as cur:
@@ -93,17 +110,22 @@ class Database:
             logger.error(f"Failed to get popular items: {e}")
             return []
 
-    def get_popular_items_with_counts(self, event_type: str = "clicks", limit: int = 10) -> List[Dict]:
+    def get_popular_items_with_counts(
+        self, event_type: str = "clicks", limit: int = 10
+    ) -> List[Dict]:
         """Get popular items with counts for visualization. Sort by count DESC."""
         try:
             with self.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT aid, count, rank
                     FROM popular_items
                     WHERE event_type = %s AND time_scope = 'all_time'
                     ORDER BY count DESC
                     LIMIT %s
-                """, (event_type, limit))
+                """,
+                    (event_type, limit),
+                )
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:
             logger.error(f"Failed to get popular items with counts: {e}")
@@ -126,8 +148,8 @@ class Database:
                     UPDATE popular_items
                     SET rank = ranked.new_rank
                     FROM ranked
-                    WHERE popular_items.aid = ranked.aid 
-                      AND popular_items.event_type = ranked.event_type 
+                    WHERE popular_items.aid = ranked.aid
+                      AND popular_items.event_type = ranked.event_type
                       AND popular_items.time_scope = ranked.time_scope
                 """)
             logger.info("Popular items ranks successfully refreshed in DB.")
@@ -222,12 +244,15 @@ class Database:
         """Get latency history for plotting."""
         try:
             with self.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT created_at, latency_ms, model_used
                     FROM predictions_log
                     ORDER BY created_at DESC
                     LIMIT %s
-                """, (limit,))
+                """,
+                    (limit,),
+                )
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:
             logger.error(f"Failed to get latency history: {e}")
@@ -237,7 +262,9 @@ class Database:
         """Get conversion funnel data."""
         try:
             with self.cursor() as cur:
-                cur.execute("SELECT * FROM funnel_stats ORDER BY computed_at DESC LIMIT 1")
+                cur.execute(
+                    "SELECT * FROM funnel_stats ORDER BY computed_at DESC LIMIT 1"
+                )
                 return dict(cur.fetchone() or {})
         except Exception as e:
             logger.error(f"Failed to get funnel stats: {e}")
@@ -247,7 +274,10 @@ class Database:
         """Get hourly traffic stats."""
         try:
             with self.cursor() as cur:
-                cur.execute("SELECT * FROM stats_hourly ORDER BY window_start DESC LIMIT %s", (limit,))
+                cur.execute(
+                    "SELECT * FROM stats_hourly ORDER BY window_start DESC LIMIT %s",
+                    (limit,),
+                )
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:
             logger.error(f"Failed to get hourly stats: {e}")
@@ -267,11 +297,14 @@ class Database:
         """Get recent Spark performance metrics."""
         try:
             with self.cursor() as cur:
-                cur.execute("""
-                    SELECT * FROM spark_metrics 
-                    ORDER BY timestamp DESC 
+                cur.execute(
+                    """
+                    SELECT * FROM spark_metrics
+                    ORDER BY timestamp DESC
                     LIMIT %s
-                """, (limit,))
+                """,
+                    (limit,),
+                )
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:
             logger.error(f"Failed to get spark metrics: {e}")
@@ -291,11 +324,31 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to log online hit: {e}")
 
+    def log_online_hits_batch(self, hits: List[tuple]):
+        """Bulk insert online hits (session_id, aid, event_type, is_hit)."""
+        if not hits:
+            return
+        try:
+            with self.cursor() as cur:
+                batch_size = 100
+                for i in range(0, len(hits), batch_size):
+                    batch = hits[i : i + batch_size]
+                    args_str = ",".join(
+                        cur.mogrify("(%s, %s, %s, %s)", row).decode() for row in batch
+                    )
+                    cur.execute(
+                        f"INSERT INTO online_hits (session_id, aid, event_type, is_hit) VALUES {args_str}"
+                    )
+        except Exception as e:
+            logger.error(f"Failed to log online hits batch: {e}")
+
     def get_advanced_funnel_stats(self) -> List[Dict]:
         """Get performance funnel metrics per recommendation model."""
         try:
             with self.cursor() as cur:
-                cur.execute("SELECT * FROM advanced_funnel_stats ORDER BY total_sessions DESC")
+                cur.execute(
+                    "SELECT * FROM advanced_funnel_stats ORDER BY total_sessions DESC"
+                )
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:
             logger.error(f"Failed to get advanced funnel stats: {e}")
@@ -306,16 +359,109 @@ class Database:
         try:
             with self.cursor() as cur:
                 cur.execute("""
-                    SELECT 
+                    SELECT
                         COUNT(*) as total_actions,
                         SUM(CASE WHEN is_hit THEN 1 ELSE 0 END) as total_hits,
                         AVG(CASE WHEN is_hit THEN 1.0 ELSE 0.0 END) as hit_rate
                     FROM online_hits
                 """)
-                return dict(cur.fetchone() or {"total_actions": 0, "total_hits": 0, "hit_rate": 0})
+                return dict(
+                    cur.fetchone()
+                    or {"total_actions": 0, "total_hits": 0, "hit_rate": 0}
+                )
         except Exception as e:
             logger.error(f"Failed to get hit rate stats: {e}")
             return {"total_actions": 0, "total_hits": 0, "hit_rate": 0}
+
+    def log_online_metrics(
+        self,
+        session_id: int,
+        model_used: str,
+        event_type: str,
+        metrics: Dict[str, float],
+    ):
+        """Log per-session evaluation metrics (Recall@K, NDCG@K, MRR@K)."""
+        try:
+            with self.cursor() as cur:
+                for metric_name, value in metrics.items():
+                    cur.execute(
+                        """INSERT INTO online_metrics
+                           (session_id, model_used, event_type, metric_name, metric_value)
+                           VALUES (%s, %s, %s, %s, %s)""",
+                        (session_id, model_used, event_type, metric_name, value),
+                    )
+        except Exception as e:
+            logger.error(f"Failed to log online metrics: {e}")
+
+    def get_online_metrics_trend(
+        self, metric_name: str = "recall@20", limit: int = 100
+    ) -> List[Dict]:
+        """Get metric trend over time, grouped by model."""
+        try:
+            with self.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT model_used, event_type,
+                           AVG(metric_value) as avg_value,
+                           COUNT(*) as count,
+                           MAX(created_at) as latest_at
+                    FROM online_metrics
+                    WHERE metric_name = %s
+                    GROUP BY model_used, event_type
+                    ORDER BY avg_value DESC
+                    LIMIT %s
+                """,
+                    (metric_name, limit),
+                )
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get online metrics trend: {e}")
+            return []
+
+    def get_all_online_metrics_summary(self, limit: int = 50) -> List[Dict]:
+        """Get all metric values grouped by model and metric_name."""
+        try:
+            with self.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT model_used, metric_name, event_type,
+                           AVG(metric_value) as avg_value,
+                           COUNT(*) as count
+                    FROM online_metrics
+                    GROUP BY model_used, metric_name, event_type
+                    ORDER BY metric_name, avg_value DESC
+                    LIMIT %s
+                """,
+                    (limit,),
+                )
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get online metrics summary: {e}")
+            return []
+
+    def get_item_insights(self, limit: int = 100) -> List[Dict]:
+        """
+        Get item conversion metrics (stats_items) for Item Insights dashboard.
+        Tracks per-item conversion funnel: clicks -> carts -> orders.
+        Used for popularity bias mitigation and hidden gem discovery.
+        """
+        try:
+            with self.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT aid, total_clicks, total_carts, total_orders,
+                           click_to_cart_rate, click_to_order_rate, cart_to_order_rate,
+                           last_updated
+                    FROM stats_items
+                    ORDER BY total_clicks DESC
+                    LIMIT %s
+                """,
+                    (limit,),
+                )
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get item insights: {e}")
+            return []
 
     def close(self):
         if self._conn:

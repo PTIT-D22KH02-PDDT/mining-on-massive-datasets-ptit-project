@@ -1,0 +1,35 @@
+{
+  "rows": 3,
+  "data": [
+    {
+      "id": 1,
+      "query_id": "6f3002ac-b1a2-4b43-a2b3-1a2ac737f474",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 0,
+      "input_rows_per_second": 0.0,
+      "process_rows_per_second": 0.0,
+      "batch_duration_ms": 7231,
+      "timestamp": "2026-05-22 15:12:20.259260"
+    },
+    {
+      "id": 2,
+      "query_id": "6f3002ac-b1a2-4b43-a2b3-1a2ac737f474",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 1,
+      "input_rows_per_second": 941.1764705882352,
+      "process_rows_per_second": 0.18248175182481752,
+      "batch_duration_ms": 87680,
+      "timestamp": "2026-05-22 15:14:53.375827"
+    },
+    {
+      "id": 3,
+      "query_id": "6f3002ac-b1a2-4b43-a2b3-1a2ac737f474",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 2,
+      "input_rows_per_second": 2284.0770432541535,
+      "process_rows_per_second": 1873.665796686592,
+      "batch_duration_ms": 106898,
+      "timestamp": "2026-05-22 15:16:40.280420"
+    }
+  ]
+}

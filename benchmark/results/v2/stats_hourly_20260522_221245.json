@@ -1,0 +1,20 @@
+{
+  "rows": 1,
+  "data": [
+    {
+      "id": 1,
+      "window_start": "2026-05-22 15:10:00",
+      "window_end": "2026-05-22 15:15:00",
+      "total_events": 307,
+      "total_clicks": 108,
+      "total_carts": 97,
+      "total_orders": 102,
+      "total_sessions": 269,
+      "unique_sessions": 269,
+      "unique_items": 302,
+      "click_to_cart_rate": 0.8981481481481481,
+      "cart_to_order_rate": 1.0515463917525774,
+      "created_at": "2026-05-22 15:16:39.334144"
+    }
+  ]
+}
