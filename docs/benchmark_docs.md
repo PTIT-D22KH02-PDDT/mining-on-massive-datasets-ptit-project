@@ -80,6 +80,7 @@ Trong đợt benchmark này, chúng ta tập trung vào **load test** và **stre
 | API throughput | >100 req/s | >50 req/s | <10 req/s | Với 50 concurrent users |
 | API error rate | <0.1% | <1% | >5% | Status != 200 |
 | Kafka producer TPS | >200K msg/s | >100K msg/s | <50K msg/s | Record-size 1KB, acks=1 |
+| Kafka producer P95 latency | <500ms | <5s | >5s | |
 | Kafka consumer TPS | >100K msg/s | >50K msg/s | <20K msg/s | |
 | Spark stability ratio | <0.5 | <0.8 | >1.0 | processing_time / batch_interval |
 | Spark batch duration | <5s | <8s | >10s | Với trigger interval 5-10s |

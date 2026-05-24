@@ -120,7 +120,7 @@ d = json.load(open('$K6_SUMMARY'))
 m = d.get('metrics', {})
 hd = m.get('http_req_duration', {}).get('values', {}) or m.get('http_req_duration', {}).get('data', {}).get('values', {})
 p = hd.get('p(95)', 9999)
-print('PASS' if p < 500 else 'FAIL')
+print('FAIL' if p > 1000 else ('WARN' if p > 500 else 'PASS'))
 " 2>/dev/null)
     ERR_OK=$(python3 -c "
 import json
@@ -143,9 +143,10 @@ print('PASS' if r < 0.01 else 'FAIL')
     LAST_LINE=$(grep "records sent" "$KAFKA_LOG" | tail -1)
     TPS=$(echo "$LAST_LINE" | grep -oP '[\d,.]+(?= records/sec)' | tr -d ',')
     LAT_P95=$(echo "$LAST_LINE" | grep -oP '[\d,.]+(?= ms 95th)' | tr -d ',')
-    KAFKA_OK=$(python3 -c "t=float('${TPS:-0}'.replace(',','')); print('PASS' if t >= 5000 else 'FAIL')" 2>/dev/null)
+    KAFKA_OK=$(python3 -c "t=float('${TPS:-0}'.replace(',','')); print('FAIL' if t < 50000 else ('WARN' if t < 100000 else 'PASS'))" 2>/dev/null)
+    KAFKA_P95_OK=$(python3 -c "p=float('${LAT_P95:-0}'.replace(',','')); print('FAIL' if p >= 5000 else ('WARN' if p >= 500 else 'PASS'))" 2>/dev/null)
     echo "  Kafka producer TPS:   ${TPS:-N/A}  [${KAFKA_OK:-?}]"
-    echo "  Kafka P95 latency:    ${LAT_P95:-N/A}ms"
+    echo "  Kafka P95 latency:    ${LAT_P95:-N/A}ms  [${KAFKA_P95_OK:-?}]"
   else
     echo "  Kafka producer TPS:   N/A"
   fi
@@ -153,8 +154,11 @@ print('PASS' if r < 0.01 else 'FAIL')
   # Spark stability (from DB query via JSON)
   SPARK_FOUND=$(echo "$SPARK_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('found',True))" 2>/dev/null)
   if [ -n "$SPARK_DATA" ] && [ "$SPARK_FOUND" != "False" ]; then
+    STABILITY=$(echo "$SPARK_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('avg_s','N/A'))" 2>/dev/null)
+    SPARK_OK=$(python3 -c "s=float('${STABILITY:-0}'); t=float('${BATCHES:-1}'); print('FAIL' if s > 10 else ('WARN' if s > 8 else 'PASS'))" 2>/dev/null)
     BATCHES=$(echo "$SPARK_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('batches',0))" 2>/dev/null)
-    echo "  Spark stability:      ${BATCHES} batches  [PASS]"
+    echo "  Spark batch duration: ${STABILITY:-N/A}s  [${SPARK_OK:-?}]"
+    echo "  Spark batches:        ${BATCHES:-0}"
   else
     echo "  Spark stability:      N/A (no spark_metrics found)"
   fi
@@ -164,8 +168,10 @@ print('PASS' if r < 0.01 else 'FAIL')
   if [ -n "$E2E_DATA" ] && [ "$E2E_FOUND" != "False" ]; then
     P50_E=$(echo "$E2E_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('p50_s','N/A'))" 2>/dev/null)
     P95_E=$(echo "$E2E_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('p95_s','N/A'))" 2>/dev/null)
-    echo "  E2E latency P50:      ${P50_E:-N/A}s  [PASS]"
-    echo "  E2E latency P95:      ${P95_E:-N/A}s  [PASS]"
+    E2E_P50_OK=$(python3 -c "p=float('${P50_E:-0}'); print('FAIL' if p > 60 else ('WARN' if p > 30 else 'PASS'))" 2>/dev/null)
+    E2E_P95_OK=$(python3 -c "p=float('${P95_E:-0}'); print('FAIL' if p > 300 else ('WARN' if p > 60 else 'PASS'))" 2>/dev/null)
+    echo "  E2E latency P50:      ${P50_E:-N/A}s  [${E2E_P50_OK:-?}]"
+    echo "  E2E latency P95:      ${P95_E:-N/A}s  [${E2E_P95_OK:-?}]"
   else
     echo "  E2E latency P50:      N/A"
     echo "  E2E latency P95:      N/A"
