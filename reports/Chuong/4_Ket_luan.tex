@@ -1,0 +1,19 @@
+\documentclass[../BTL.tex]{subfiles}
+\begin{document}
+
+\section*{Giới thiệu chương}
+Chương này tổng kết toàn bộ quá trình nghiên cứu và xây dựng hệ thống gợi ý thời gian thực, đồng thời đề xuất các hướng phát triển nhằm nâng cao hiệu năng và mở rộng khả năng của hệ thống trong tương lai.
+
+\section{Kết luận}
+
+Đề tài đã thiết kế và triển khai thành công một hệ thống gợi ý thời gian thực đơn giản với mục đích để học tập gồm tám dịch vụ đóng gói trong các container, phục vụ bài toán gợi ý sản phẩm trên bộ dữ liệu OTTO. Hệ thống vận hành theo kiến trúc xử lý luồng hoàn chỉnh: API tiếp nhận tương tác người dùng, Kafka đóng vai trò trung gian chịu lỗi, Spark Streaming thực hiện sáu đường ống (pipeline) phân tích song song, và PostgreSQL lưu trữ kết quả phục vụ bảng điều khiển (dashboard) giám sát.
+
+Kết quả kiểm thử tải (benchmark) cho thấy hệ thống hoạt động đúng chức năng với tỷ lệ lỗi API bằng 0\%. Tuy nhiên, hiệu năng tổng thể còn nhiều hạn chế do ba nút thắt chính. Thứ nhất, tài nguyên CPU giới hạn (bốn lõi) gây ra xung đột giữa Kafka và Spark, làm suy giảm thông lượng truyền tải sự kiện. Thứ hai, thời gian chờ gọi máy chủ mô hình (hai giây) tạo ra độ trễ đuôi lớn ở API gợi ý: độ trễ phân vị thứ 95 lên đến gần năm giây, gấp 18 lần so với trung vị. Thứ ba, dù Spark Streaming đã được tinh chỉnh với khoảng kích hoạt (trigger) 10 giây và giới hạn bản ghi mỗi lô, các đường ống (pipeline) phân tích vẫn chưa theo kịp tốc độ đầu vào do tài nguyên máy tính hạn chế, kéo độ trễ đầu cuối (từ lúc nhận sự kiện đến khi dữ liệu xuất hiện trong cơ sở dữ liệu) lên tới bảy phút ở phân vị thứ 95.
+
+\section{Hướng phát triển}
+
+Kết quả kiểm thử tải đã chỉ ra những điểm yếu của hệ thống, từ đó mở ra một số hướng cải thiện rõ ràng.
+Về phía Spark Streaming, khoảng kích hoạt (trigger) và giới hạn số bản ghi mỗi lô đã được cài đặt, nhưng kết quả kiểm thử cho thấy các đường ống (pipeline) vẫn chưa đạt độ ổn định mong muốn. Hướng cải thiện tiếp theo là tối ưu hiệu suất xử lý của từng đường ống (pipeline), đặc biệt là các đường ống có trạng thái (stateful) như thống kê theo khoảng thời gian và độ phổ biến thời gian thực, nhằm giảm thời gian xử lý mỗi lô nhỏ.
+
+Về dài hạn, hệ thống có thể mở rộng theo nhiều hướng. Có thể thử nghiệm A/B để tìm ra hướng phù hợp và có thể triển khai CI/CD trên môi trường thực tế để tự động hóa.
+\end{document}

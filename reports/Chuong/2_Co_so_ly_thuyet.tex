@@ -1,0 +1,376 @@
+\documentclass[../BTL.tex]{subfiles}
+\begin{document}
+
+\section*{Giới thiệu chương}
+Chương này trình bày cơ sở lý thuyết về mô hình hệ gợi ý cũng như các công nghệ được sử dụng trong hệ thống gợi ý thời gian thực. Các công nghệ được đề cập bao gồm Apache Kafka cho xử lý luồng sự kiện, Apache Spark cho xử lý dữ liệu phân tán, Redis cho lưu trữ trong bộ nhớ, PostgreSQL làm cơ sở dữ liệu quan hệ, FastAPI cho API server, Streamlit cho dashboard trực quan, và Docker cho đóng gói triển khai. Phần cuối chương phân tích và so sánh các công nghệ mã nguồn mở thay thế cho từng nhóm, từ đó làm rõ cơ sở lựa chọn cho hệ thống.
+
+\section{Kafka}
+Trong hệ thống gợi ý, Kafka đảm nhận vai trò tiếp nhận các tương tác người dùng (click, view, purchase) dưới dạng sự kiện, lưu trữ tạm thời và phân phối tới các pipeline xử lý. Apache Kafka là framework xử lý dữ liệu phân tán hoạt động theo mô hình luồng sự kiện (event streaming), cho phép truyền tải và xử lý dữ liệu thời gian thực với độ trễ thấp và thông lượng cao. Kafka sử dụng giao thức Raft trong cơ chế KRaft \cite{kafka_internals} để quản lý metadata và bầu chọn controller - broker chịu trách nhiệm điều phối toàn bộ cụm. Việc bầu chọn leader cho từng phân vùng (partition) dựa trên danh sách các bản sao đồng bộ (ISR - in-sync replicas). Kafka dùng cơ chế phân vùng (partition) và sao chép (replication) để phân tán dữ liệu trên nhiều broker, tăng khả năng chịu lỗi và đạt thông lượng cao \cite{kafka_design}.
+
+\subsection{Kiến trúc cơ bản của Kafka}
+Kiến trúc của Kafka được tổ chức theo mô hình phân tán với các thành phần chính sau \cite{kafka_official,streaming_systems}:
+
+\begin{itemize}
+    \item \textbf{Broker:} Máy chủ trong cụm chịu trách nhiệm lưu trữ và phục vụ dữ liệu. Mỗi broker quản lý một tập các partition thuộc các topic khác nhau.
+
+    \item \textbf{Topic:} Đơn vị phân loại dữ liệu trong Kafka. Mỗi topic đại diện cho một luồng dữ liệu có thứ tự. Producer gửi bản ghi tới topic và consumer đọc bản ghi từ topic.
+
+    \item \textbf{Partition:} Mỗi topic được chia thành nhiều partition để cho phép song song hóa việc đọc và ghi dữ liệu. Các bản ghi trong mỗi partition được gán một số offset (độ dời) duy nhất. Consumer sử dụng offset để theo dõi vị trí đọc.
+
+    \item \textbf{Producer / Consumer:} Producer gửi bản ghi tới các topic và phân phối tới các partition dựa trên khóa phân vùng. Consumer đăng ký theo dõi topic và liên tục kéo (pull) các bản ghi mới từ broker. Kafka đảm bảo mỗi bản ghi trong một partition chỉ được đọc bởi một consumer trong cùng một consumer group.
+
+    \item \textbf{Replication:} Mỗi partition có một bản sao chính (leader) và nhiều bản sao dự phòng (follower). Tất cả thao tác ghi và đọc đều qua leader, và leader đồng bộ hóa dữ liệu tới các follower. Kafka hỗ trợ cấu hình mức độ sao chép (replication factor) và ba mức xác nhận: \textit{acks=0}, \textit{acks=1}, và \textit{acks=all}.
+
+    \item \textbf{KRaft:} Cơ chế quản lý metadata nội bộ của Kafka, thay thế cho ZooKeeper từ phiên bản 3.4. Một broker đóng vai trò controller, chịu trách nhiệm quản lý trạng thái các broker và xử lý sự kiện thay đổi trạng thái \cite{kafka_internals}.
+\end{itemize}
+
+Kafka hoạt động theo mô hình publish-subscribe (xuất bản - đăng ký), giúp tách rời producer và consumer, cho phép hệ thống mở rộng linh hoạt. Dữ liệu được lưu trữ trong các partition theo cấu trúc log có thể cấu hình (retention period), cho phép consumer đọc lại dữ liệu cũ thông qua điều chỉnh offset \cite{kafka_definitive, streaming_systems}.
+
+Ưu điểm của Kafka: khả năng chịu tải và mở rộng cao, đảm bảo thứ tự ghi (ordering guarantee) trong cùng một partition, độ tin cậy cao (nhờ replication), xử lý dòng sự kiện thời gian thực, và lưu trữ bền vững cho phép tái xử lý.
+
+Nhược điểm của Kafka: phức tạp trong triển khai và quản lý, yêu cầu tài nguyên đáng kể, khả năng quản lý dữ liệu cũ hạn chế, và rủi ro quá tải từ sự kiện không cần thiết \cite{kafka_official}.
+
+
+\section{Apache Spark}
+Trong hệ thống gợi ý, Apache Spark đảm nhận cả tác vụ xử lý theo lô (batch processing) - như huấn luyện mô hình và tính toán thống kê - lẫn xử lý luồng dữ liệu thời gian thực. Apache Spark là framework xử lý dữ liệu phân tán mã nguồn mở, sử dụng mô hình xử lý trong bộ nhớ (in-memory computing) để đạt hiệu suất cao hơn so với các framework dựa trên đĩa truyền thống \cite{spark_rdd, spark_definitive}. Spark được xây dựng trên khái niệm Resilient Distributed Datasets (RDD) - tập dữ liệu phân tán có khả năng phục hồi lỗi (fault tolerance), từ đó phát triển thêm các API trừu tượng ở mức cao hơn như DataFrame và Dataset \cite{spark_rdd, spark_sql}.
+
+\subsection{Các thành phần chính của Spark}
+Spark được tổ chức thành các tầng thành phần xếp chồng lên nhau \cite{spark_definitive, spark_official}:
+
+\begin{itemize}
+    \item \textbf{Spark Core:} Nền tảng của toàn bộ hệ thống, chịu trách nhiệm quản lý bộ nhớ, lập lịch tác vụ (task scheduling), theo dõi lỗi (fault recovery), và tương tác với hệ thống lưu trữ bên ngoài. Cung cấp API cho Java, Scala, Python và R \cite{spark_rdd}.
+
+    \item \textbf{Spark SQL:} Cung cấp kiểu trừu tượng DataFrame/Dataset, hỗ trợ dữ liệu có cấu trúc và nửa cấu trúc. Sử dụng bộ tối ưu hóa Catalyst để phân tích, tối ưu và thực thi truy vấn tự động \cite{spark_sql}.
+
+    \item \textbf{Spark Streaming / Structured Streaming:} Xử lý luồng dữ liệu bằng cách chia luồng thành các micro-batch và áp dụng RDD transformation lên từng lô nhỏ. Structured Streaming mở rộng DataFrame để xử lý luồng theo cách khai báo (declarative), tự động quản lý checkpoint và offset \cite{spark_streaming, spark_structured_streaming}.
+
+    \item \textbf{MLlib:} Thư viện học máy tích hợp sẵn của Spark, cung cấp các thuật toán phân loại (classification), hồi quy (regression), gom cụm (clustering), lọc cộng tác (collaborative filtering) và giảm chiều (dimensionality reduction) \cite{spark_mllib}.
+
+    \item \textbf{GraphX:} Khung xử lý đồ thị phân tán trên nền tảng Spark, cung cấp bộ API linh hoạt và các thuật toán đồ thị phân tán phổ biến như PageRank, connected components và triangle counting \cite{spark_graphx}.
+\end{itemize}
+
+Ưu điểm của Spark: tương thích cao với các nguồn dữ liệu Hadoop và nhiều hệ thống khác (Kafka, Cassandra, JDBC), hỗ trợ nhiều ngôn ngữ (Scala, Java, Python, R), xử lý trong bộ nhớ cho tốc độ cao, hỗ trợ xử lý theo lô (batch processing), phân tích thời gian thực, học máy và xử lý đồ thị trong một framework duy nhất, và hệ sinh thái phong phú \cite{spark_definitive, spark_official}.
+
+\subsection{Cơ chế hoạt động của Spark}
+Spark giải quyết các hạn chế của Hadoop MapReduce bằng cách tối ưu hóa quy trình xử lý dữ liệu \cite{spark_rdd, spark_definitive}:
+
+\begin{itemize}
+    \item \textbf{Hadoop MapReduce} yêu cầu đọc-ghi đĩa nhiều lần qua HDFS cho mỗi giai đoạn (stage), gây độ trễ I/O đáng kể, đặc biệt khi cần nhiều vòng lặp tính toán liên tiếp \cite{hadoop_mapreduce}.
+
+    \item \textbf{Xử lý trong bộ nhớ (in-memory processing):} Spark đọc dữ liệu một lần vào bộ nhớ, thực hiện các thao tác biến đổi (transformation) trực tiếp trên dữ liệu trong bộ nhớ, và chỉ ghi kết quả cuối cùng ra đĩa khi cần \cite{spark_rdd}.
+
+    \item \textbf{Tái sử dụng dữ liệu (data reuse):} Spark sử dụng bộ nhớ đệm (cache) để lưu dữ liệu đã xử lý, cho phép nhiều thao tác tái sử dụng mà không cần tính toán lại. Đặc biệt hữu ích cho thuật toán học máy lặp và xử lý đồ thị \cite{spark_rdd, spark_sql}.
+
+    \item \textbf{Đồ thị xử lý có hướng không chu trình (DAG):} Spark Core chuyển chương trình thành DAG gồm các giai đoạn (stage) và tác vụ (task). Mỗi giai đoạn chứa các tác vụ thực thi song song trên các executor, và Spark tối ưu hóa DAG bằng cách gộp các thao tác có thể thực hiện cùng nhau \cite{spark_rdd}.
+
+    \item \textbf{Đánh giá lười (lazy evaluation):} Các phép biến đổi (transformation) trên RDD hoặc DataFrame không được thực thi ngay, chỉ được ghi nhận trong DAG. Khi gặp thao tác hành động (action) như collect, count hoặc save, Spark mới thực sự tính toán toàn bộ DAG. Điều này cho phép Spark tối ưu kế hoạch thực thi toàn cục \cite{spark_sql}.
+\end{itemize}
+
+Spark hỗ trợ ba chế độ triển khai chính: Spark Standalone, Apache YARN, và Kubernetes \cite{spark_official}.
+
+
+\section{Redis}
+Trong hệ thống gợi ý, Redis phục vụ hai mục đích: làm bộ đệm (buffer) lưu lịch sử tương tác của phiên người dùng hiện tại và làm bộ nhớ đệm (cache) kết quả gợi ý đã tính toán. Redis là hệ thống lưu trữ dữ liệu dạng key-value trong bộ nhớ. Nhờ lưu trữ toàn bộ dữ liệu trên RAM và thiết kế đơn luồng (single-threaded), Redis đạt được độ trễ rất thấp cho cả thao tác đọc và ghi, phù hợp với các trường hợp sử dụng đòi hỏi phản hồi nhanh \cite{redis_official,redis_wikipedia}.
+
+\subsection{Các kiểu dữ liệu và tính năng chính}
+Redis hỗ trợ nhiều kiểu dữ liệu phức tạp ngoài string thuần túy, cho phép thao tác trực tiếp trên cấu trúc dữ liệu phía server thay vì chỉ trả về giá trị đơn thuần \cite{redis_official,redis_definitive}:
+
+\begin{itemize}
+    \item \textbf{String:} Kiểu cơ bản nhất, lưu trữ chuỗi byte có thể là văn bản, JSON, hoặc số.
+
+    \item \textbf{Hash:} Bảng ánh xạ giữa các trường (field) và giá trị, phù hợp để biểu diễn đối tượng \cite{redis_official}.
+
+    \item \textbf{List:} Danh sách các chuỗi có thứ tự, hỗ trợ thao tác hai đầu (push/pop) với độ phức tạp O(1).
+
+    \item \textbf{Set:} Tập hợp các phần tử không trùng lặp, hỗ trợ các phép toán hợp (union), giao (intersection) và hiệu (difference) \cite{redis_definitive}.
+
+    \item \textbf{Sorted Set (ZSet):} Tập hợp có thứ tự, mỗi phần tử gắn kèm một điểm số (score) dùng để sắp xếp, thường dùng cho bảng xếp hạng (leaderboard) \cite{redis_official}.
+
+    \item \textbf{Stream:} Cấu trúc log cho phép lưu trữ nhiều trường và giá trị theo thứ tự thời gian tại một khóa duy nhất, hỗ trợ mô hình pub/sub và consumer group \cite{redis_wikipedia,redis_official}.
+
+    \item \textbf{JSON:} Redis hỗ trợ kiểu dữ liệu JSON cho phép lưu trữ và truy vấn tài liệu JSON trực tiếp \cite{redis_official}.
+
+    \item \textbf{Vector:} Redis hỗ trợ vector embedding phục vụ ứng dụng AI và tìm kiếm ngữ nghĩa (semantic search) \cite{redis_official}.
+\end{itemize}
+
+Ngoài các kiểu dữ liệu, Redis còn cung cấp các tính năng quan trọng: Pub/Sub cho mô hình nhắn tin thời gian thực, Transaction cho phép thực thi nhóm lệnh nguyên tử, và Lua scripting cho phép chạy script tùy chỉnh trên server \cite{redis_official,redis_wikipedia}.
+
+\subsection{Persistence và Replication}
+Mặc dù dữ liệu được lưu trữ trong RAM, Redis hỗ trợ hai cơ chế ghi dữ liệu ra đĩa để đảm bảo tính bền vững \cite{redis_wikipedia}: snapshotting (RDB) - chụp trạng thái toàn bộ dữ liệu tại một thời điểm theo định kỳ; và journaling (AOF - Append Only File) - ghi lại mỗi thao tác sửa đổi vào file log, cho phép khôi phục chính xác hơn. Mặc định, Redis ghi dữ liệu xuống đĩa mỗi giây với cơ chế AOF fsync và tạo snapshot RDB định kỳ với khoảng cách vài phút; lượng dữ liệu mất đi khi sự cố phụ thuộc vào cấu hình persistence \cite{redis_wikipedia}.
+
+Redis hỗ trợ master-replica replication, cho phép dữ liệu từ một Redis server sao chép tới nhiều replica. Tính năng này phục vụ cho việc mở rộng khả năng đọc và đảm bảo dự phòng dữ liệu \cite{redis_wikipedia}. Redis Cluster cho phép phân tán dữ liệu trên nhiều node, có thể mở rộng tới 1.000 node và duy trì hoạt động khi một số node bị lỗi \cite{redis_wikipedia,redis_official}.
+
+Ưu điểm của Redis: độ trễ cực thấp (sub-millisecond), hỗ trợ nhiều kiểu dữ liệu phức tạp, nhân bản (replication) và phân cụm (clustering) cho khả năng mở rộng, Pub/Sub cho nhắn tin thời gian thực.
+
+Nhược điểm của Redis: do lưu trữ hoàn toàn trên RAM nên chi phí vận hành cao, không phù hợp với dữ liệu lớn vượt quá dung lượng bộ nhớ khả dụng, và yêu cầu chiến lược persistence phù hợp để tránh mất dữ liệu khi sự cố \cite{redis_wikipedia}.
+
+
+\section{FastAPI}
+Trong hệ thống gợi ý, FastAPI cung cấp các API endpoint để phục vụ kết quả gợi ý cho ứng dụng phía client. FastAPI là web framework dành cho Python, được thiết kế để xây dựng các API HTTP với hiệu suất cao và tốc độ phát triển nhanh \cite{fastapi_official}. Framework sử dụng Python type hints để khai báo tham số, request body và response; tự động sinh tài liệu OpenAPI và cung cấp giao diện API tương tác (Swagger UI tại /docs và ReDoc tại /redoc) mà không cần cấu hình thêm \cite{fastapi_official,fastapi_wikipedia}. FastAPI được xây dựng trên Starlette cho phần web (ASGI) và Pydantic cho xác thực dữ liệu \cite{fastapi_official}.
+
+FastAPI hỗ trợ đầy đủ các phương thức HTTP: GET, POST, PUT, DELETE, PATCH, OPTIONS. Ngoài ra, framework hỗ trợ WebSocket cho giao tiếp hai chiều (full-duplex), Background Tasks cho xử lý bất đồng bộ sau khi trả response, và GraphQL thông qua tích hợp với Strawberry \cite{fastapi_official,fastapi_wikipedia}.
+
+FastAPI dựa trên ASGI (Asynchronous Server Gateway Interface) - một chuẩn giao diện giữa ứng dụng Python và web server, cho phép xử lý bất đồng bộ \cite{fastapi_wikipedia}. Uvicorn đóng vai trò server mặc định, sử dụng mô hình đa tiến trình (multi-worker) với một tiến trình chính (main process) quản lý pool worker và phân phối request tới các worker \cite{fastapi_wikipedia}.
+
+Kiến trúc của FastAPI tận dụng Pydantic để định nghĩa cấu trúc dữ liệu qua Python type hints. Khi một request đến, Pydantic tự động xác thực dữ liệu đầu vào, chuyển đổi từ JSON sang các kiểu Python tương ứng, và serialize dữ liệu đầu ra trở lại JSON - toàn bộ chỉ với một khai báo duy nhất \cite{fastapi_official}. Hệ thống tiêm phụ thuộc (Dependency Injection) cho phép khai báo các thành phần phụ thuộc (database session, authentication, logging) như tham số của endpoint; Framework tự động phân giải và tiêm các dependency này cho mỗi request, hỗ trợ cleanup sau khi request hoàn tất qua cơ chế yield \cite{fastapi_official,fastapi_wikipedia}. Hiệu suất của FastAPI đến từ kiến trúc bất đồng bộ (async) thuần túy và khả năng xử lý đồng thời nhiều request trên một vòng lặp sự kiện đơn luồng \cite{fastapi_wikipedia}.
+
+Ưu điểm: hiệu suất cao, tự động sinh tài liệu OpenAPI, xác thực dữ liệu tự động qua Pydantic, hỗ trợ lập trình bất đồng bộ (async/await), tiêm phụ thuộc (Dependency Injection) mạnh mẽ, hỗ trợ WebSocket và background tasks.
+
+Nhược điểm: hệ sinh thái bổ sung (third-party) còn đang phát triển, không phù hợp với các ứng dụng cần đồng bộ hóa phía server phức tạp như Django, và yêu cầu Python 3.8+ \cite{fastapi_official}.
+
+
+\section{PostgreSQL}
+Trong hệ thống gợi ý, PostgreSQL đóng vai trò kho dữ liệu tổng hợp, lưu trữ kết quả thống kê, log sự kiện và thông tin phục vụ dashboard phân tích. PostgreSQL là hệ quản trị cơ sở dữ liệu quan hệ đối tượng (RDBMS) mã nguồn mở, nhấn mạnh tính mở rộng (extensibility) và tuân thủ chuẩn SQL cao \cite{postgresql_wikipedia}.
+
+PostgreSQL quản lý xử lý đồng thời (concurrency) thông qua MVCC (Multiversion Concurrency Control), cho phép mỗi transaction có một "snapshot" riêng của database, loại bỏ phần lớn nhu cầu đọc khóa (read locks) \cite{postgresql_wikipedia}. Hệ thống cung cấp bốn mức độ cô lập transaction theo chuẩn SQL: Read Uncommitted (được xử lý tương đương Read Committed trong PostgreSQL), Read Committed, Repeatable Read và Serializable, và hỗ trợ serializability đầy đủ qua phương pháp SSI (Serializable Snapshot Isolation) \cite{postgresql_wikipedia}.
+
+PostgreSQL hỗ trợ nhiều loại index phức tạp: B-tree, hash, GiST, GIN, SP-GiST và BRIN, cùng với khả năng tạo index trên biểu thức (expression index) và index một phần (partial index) \cite{postgresql_wikipedia,postgresql_official}. Về replication, PostgreSQL tích hợp sẵn binary replication dựa trên WAL (Write-Ahead Logging), cho phép cấu hình replication đồng bộ hoặc bất đồng bộ và phân tách truy vấn đọc (read scaling) trên các replica \cite{postgresql_wikipedia}.
+
+PostgreSQL hỗ trợ nhiều kiểu dữ liệu phong phú bao gồm JSON/JSONB, array, geometric types, IPv4/IPv6, UUID, XML, và cho phép người dùng định nghĩa kiểu dữ liệu tùy chỉnh (user-defined types) cùng với các index method tương ứng \cite{postgresql_wikipedia,postgresql_official}. Tính năng Foreign Data Wrapper (FDW) cho phép PostgreSQL kết nối tới các nguồn dữ liệu bên ngoài như file hệ thống, RDBMS khác, hoặc dịch vụ web và truy vấn chúng như các bảng thông thường \cite{postgresql_wikipedia}.
+
+Ưu điểm: mã nguồn mở với giấy phép PostgreSQL cho phép sử dụng tự do, tuân thủ chuẩn SQL cao, hỗ trợ nhiều kiểu dữ liệu phức tạp, MVCC giúp xử lý đồng thời hiệu quả mà không cần read locks, và khả năng mở rộng cao thông qua user-defined types và index methods \cite{postgresql_wikipedia,postgresql_official}.
+
+Nhược điểm: hiệu suất trên các workload write-heavy có thể suy giảm do hiện tượng phình bảng (table bloat) từ MVCC, yêu cầu bảo trì định kỳ qua VACUUM, và multi-master replication đồng bộ không được tích hợp sẵn trong core \cite{postgresql_wikipedia}.
+
+
+\section{Streamlit}
+Trong hệ thống gợi ý, Streamlit được dùng để xây dựng dashboard trực quan hóa số liệu thống kê và kết quả gợi ý. Streamlit là framework mã nguồn mở viết bằng Python, được thiết kế để giúp các nhà khoa học dữ liệu và kỹ sư AI/ML nhanh chóng tạo ra các ứng dụng web dữ liệu chỉ với vài dòng code thuần Python, không yêu cầu kinh nghiệm về giao diện người dùng (front-end) \cite{streamlit_official}.
+
+Nguyên tắc cốt lõi của Streamlit là khai báo widget (thành phần giao diện) tương đương với khai báo biến - không cần viết phần xử lý phía server (backend), định nghĩa tuyến đường (route), xử lý yêu cầu HTTP, hay viết HTML/CSS/JavaScript \cite{streamlit_official}. Mỗi khi file Python được lưu, ứng dụng tự động cập nhật ngay (tải lại tức thì - hot reload), cho phép lập trình viên thấy kết quả tức thì trong quá trình phát triển. API của Streamlit rất đơn giản: chỉ cần \textbf{import streamlit as st} và sử dụng các hàm như \textbf{st.write()}, \textbf{st.line\_chart()}, \textbf{st.dataframe()} \cite{streamlit_official}.
+
+Streamlit tương thích với hầu hết các thư viện khoa học dữ liệu phổ biến bao gồm Pandas, NumPy, Matplotlib, Plotly, Scikit-learn, TensorFlow, PyTorch, Bokeh, Altair, OpenCV và Vega-Lite \cite{streamlit_official}. Ngoài ra, Streamlit Components cho phép cộng đồng xây dựng và chia sẻ các thành phần tùy chỉnh mở rộng khả năng của framework.
+
+Ưu điểm: tốc độ phát triển nhanh, API đơn giản, không yêu cầu giao diện người dùng (front-end), tải lại tức thì (hot reload) tự động, tương thích rộng với các thư viện Python data science, triển khai dễ dàng \cite{streamlit_official}.
+
+Nhược điểm: không phù hợp với các ứng dụng cần giao diện người dùng phức tạp hoặc tùy chỉnh cao, framework thiên về ứng dụng dữ liệu (data app) chứ không phải web framework đa năng (general-purpose), và các component mặc định có giới hạn về mặt thiết kế \cite{streamlit_official}.
+
+
+\section{Docker}
+Trong hệ thống gợi ý, Docker được dùng để đóng gói toàn bộ các thành phần (Kafka, Spark, Redis, FastAPI, PostgreSQL, Streamlit) thành các container riêng biệt, đảm bảo tính nhất quán giữa môi trường phát triển và triển khai. Docker là nền tảng mã nguồn mở cho phép đóng gói ứng dụng và các phụ thuộc của nó vào container - một đơn vị chuẩn hóa chứa mọi thứ cần thiết để chạy phần mềm \cite{docker_official,docker_wikipedia}. Container được phát triển từ công nghệ cgroups và namespace của nhân Linux, cho phép cô lập tiến trình (process isolation) mà không cần máy ảo (virtual machine) riêng biệt \cite{docker_primer}. Với container, ứng dụng được cô lập hoàn toàn: chỉ cần cài đặt Docker Engine trên hệ điều hành tương thích là có thể chạy container, với nhân Linux được chia sẻ giữa host và container \cite{docker_primer,docker_wikipedia}.
+
+\subsection{Kiến trúc cơ bản của Docker}
+Kiến trúc của Docker gồm ba thành phần chính \cite{docker_official}:
+
+\begin{itemize}
+    \item \textbf{Docker Daemon (dockerd):} Tiến trình nền (background process) chạy trên máy chủ, chịu trách nhiệm quản lý vòng đời container (tạo, chạy, dừng), xây dựng image, quản lý network và volume. Docker Daemon lắng nghe các API request từ Docker Client.
+
+    \item \textbf{Docker Client:} Giao diện dòng lệnh (CLI) mà người dùng tương tác, ví dụ các lệnh docker build, docker run, docker pull. Docker Client giao tiếp với Daemon thông qua REST API \cite{docker_official}.
+
+    \item \textbf{Registry (kho chứa image):} Nơi lưu trữ và phân phối Docker image. Docker Hub là registry công cộng mặc định, chứa hàng nghìn image sẵn có như ubuntu, python, postgres. Người dùng cũng có thể tự xây dựng private registry \cite{docker_official,docker_primer}.
+\end{itemize}
+
+\subsection{Image và Container}
+Docker Image là một khuôn mẫu chỉ đọc (read-only template) chứa hệ điều hành gốc, mã ứng dụng, thư viện, và các cấu hình cần thiết. Image được xây dựng từ Dockerfile - tệp cấu hình khai báo từng bước để tạo nên image \cite{docker_official,docker_primer}.
+
+Docker Container là một instance đang chạy (running instance) của một image. Nhiều container có thể chạy từ cùng một image mà không ảnh hưởng lẫn nhau, vì mỗi container có filesystem, network và process space riêng biệt \cite{docker_official}. Container được tạo bằng lệnh docker run; có thể dừng bằng docker stop và xóa bằng docker rm. Lệnh docker ps liệt kê các container đang chạy \cite{docker_wikipedia}.
+
+Cơ chế layered filesystem cho phép các image chia sẻ chung các lớp (layer) dữ liệu, giảm đáng kể dung lượng lưu trữ và thời gian build. Khi một container thay đổi file, Docker sử dụng kỹ thuật sao chép khi ghi (copy-on-write): file được sao chép vào writable layer của container, tách biệt khỏi image gốc \cite{docker_primer}.
+
+\subsection{Dockerfile và quy trình đóng gói}
+Dockerfile là tệp văn bản chứa các chỉ thị (instruction) để tự động xây dựng image. Các instruction quan trọng bao gồm: FROM (image gốc), RUN (chạy lệnh trong quá trình build), COPY/ADD (sao chép tệp vào image), CMD/ENTRYPOINT (lệnh chạy khi container khởi động), EXPOSE (khai báo port), ENV (thiết lập biến môi trường) \cite{docker_official,docker_primer}.
+
+Docker image được build theo từng lớp, mỗi instruction tạo ra một lớp mới. Docker cache các lớp này; khi thay đổi Dockerfile, chỉ các lớp phía sau thay đổi mới được rebuild, giảm đáng kể thời gian build \cite{docker_official}.
+
+\subsection{Docker Compose}
+Docker Compose là công cụ cho phép định nghĩa và chạy các ứng dụng đa container (multi-container) bằng một tệp cấu hình YAML duy nhất \cite{docker_official,docker_primer}. Thay vì chạy nhiều lệnh docker run riêng lẻ, Docker Compose cho phép khai báo tất cả container, network, và volume trong một tệp docker-compose.yml, sau đó khởi động hoặc dừng toàn bộ hệ thống bằng một lệnh duy nhất (docker compose up / docker compose down) \cite{docker_official}.
+
+Ưu điểm của Docker: tính nhất quán giữa các môi trường (phát triển, kiểm thử, triển khai), cô lập hoàn toàn giữa các ứng dụng, khởi động nhanh (tính bằng giây so với phút của máy ảo), sử dụng tài nguyên hiệu quả hơn máy ảo nhờ dùng chung nhân, và hệ sinh thái phong phú với hàng nghìn image có sẵn trên Docker Hub \cite{docker_official,docker_primer}.
+
+Nhược điểm của Docker: container dùng chung nhân của hệ điều hành chủ nên có bề mặt bảo mật chung, không phù hợp với các ứng dụng cần bảo mật mức kernel hoàn toàn riêng biệt, và yêu cầu quản lý cẩn thận về mạng và lưu trữ để tránh xung đột giữa các container \cite{docker_wikipedia}.
+
+
+\section{Phân tích lựa chọn công nghệ}
+Trong hệ thống gợi ý thời gian thực, ba nhóm nhu cầu chính được xác định: truyền tải và xử lý luồng sự kiện liên tục, huấn luyện và chạy mô hình học máy hoặc học sâu trên dữ liệu lớn, và phục vụ kết quả gợi ý với độ trễ thấp. Phần này so sánh các công nghệ mã nguồn mở phù hợp với từng nhóm nhu cầu của hệ thống gợi ý. Tiêu chí lựa chọn dựa trên cộng đồng người dùng lớn, tài liệu chi tiết, khả năng đã được kiểm chứng trong thực tế, và ưu thế kỹ thuật so với các giải pháp thay thế cùng loại
+
+
+\subsection{Vai trò của từng công nghệ trong hệ gợi ý}
+
+Công nghệ xử lý luồng sự kiện (event streaming) đóng vai trò tiếp nhận các tương tác người dùng (click, view, purchase) dưới dạng sự kiện, lưu trữ tạm thời và phân phối tới các pipeline xử lý. Khả năng replay events (đọc lại sự kiện cũ) là yếu tố then chốt cho phép phục hồi hoặc xử lý lại khi cần.
+
+Công nghệ xử lý dữ liệu phân tán đảm nhận hai nhiệm vụ: batch processing (xử lý theo lô - huấn luyện mô hình trên toàn bộ dữ liệu lịch sử, tính toán, thống kê) và stream processing (cập nhật mô hình và kết quả gợi ý theo thời gian thực).
+
+Lưu trữ cache phục vụ hai mục đích: làm buffer (bộ đệm) lưu lịch sử tương tác của phiên hiện tại (phục vụ tính toán theo phiên) và caching (làm bộ nhớ đệm) kết quả gợi ý để tránh tính toán lại.
+
+Cơ sở dữ liệu quan hệ đóng vai trò kho dữ liệu tổng hợp, lưu trữ kết quả thống kê, log sự kiện, và các thông tin phục vụ dashboard phân tích.
+
+\subsection{So sánh các công nghệ xử lý luồng sự kiện}
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{} & \textbf{Apache Kafka} & \textbf{RabbitMQ} & \textbf{Apache Pulsar} \\
+\hline
+Mô hình & Event streaming & Message broker & Event streaming \\
+\hline
+Thông lượng & Hàng triệu msg/s & 4K–10K msg/s & Hàng triệu msg/s \\
+\hline
+Lưu trữ & Log-based & Xóa sau ACK & Log-based (BookKeeper) \\
+\hline
+Replay events & Có (qua offset) & Không & Có (qua cursor) \\
+\hline
+Tích hợp Spark & Native connector & Cần custom & Native connector \\
+\hline
+Mở rộng & Theo chiều ngang & Nhân bản queue & Phân tách tính toán và lưu trữ \\
+\hline
+Độ trễ (p99) & 10–50ms & 5–15ms & 5–20ms \\
+\hline
+\end{tabular}
+}
+\caption{So sánh Apache Kafka với các công nghệ mã nguồn mở thay thế}
+\label{tab:kafka_compare}
+\end{table}
+
+RabbitMQ phù hợp với việc gửi tin nhắn truyền thống ở thông lượng thấp, tuy nhiên không hỗ trợ việc lưu lại log nên không thể replay events (chạy lại sự kiện, gửi lại dữ liệu) - yếu tố quan trọng trong xử lý dữ liệu dạng luồng. Apache Pulsar có kiến trúc hiện đại với phân tách compute/storage nhưng cộng đồng nhỏ hơn, ecosystem chưa phong phú bằng Kafka \cite{kafka_vs_rabbitmq}.
+
+Kafka vượt trội hơn RabbitMQ ở khả năng mở rộng quy mô lớn nhờ kiến trúc phân vùng (partition). Mỗi topic trong Kafka được chia thành nhiều partition độc lập, mỗi partition có thể được đặt trên một broker khác nhau và được xử lý bởi các consumer khác nhau trong cùng một consumer group. Điều này cho phép tăng thông lượng tuyến tính (linear scaling) khi thêm broker - nếu một cluster có N broker, throughput có thể tăng gần N lần. RabbitMQ dùng mô hình hàng đợi tập trung, ngay cả khi chạy mirrored queues, các queue vẫn bị ràng buộc bởi dung lượng của một nút duy nhất, không thể phân tán tải tuyến tính như Kafka.
+
+Ngoài ra, Kafka sử dụng cơ chế ghi tuần tự (sequential I/O) lên đĩa thay vì ghi ngẫu nhiên (random I/O), tận dụng tối đa băng thông của ổ cứng ngay cả với phần cứng phổ thông. Vì dữ liệu không bị xóa ngay sau khi được consume (không giống RabbitMQ xóa message sau ACK), Kafka tránh được hiện tượng thắt cổ chai do xóa message liên tục - một trong những nguyên nhân chính khiến RabbitMQ giảm hiệu năng khi scale.
+
+Về mặt lý thuyết, Apache Pulsar có kiến trúc mở rộng linh hoạt hơn Kafka nhờ khả năng phân tách giữa tính toán và lưu trữ (separate compute and storage). Trong Pulsar, broker chỉ đảm nhận việc phục vụ (serving) và gửi dữ liệu, còn dữ liệu thực tế được lưu trên BookKeeper - một tầng lưu trữ riêng biệt. Khi thêm một broker mới, Pulsar chỉ cần chuyển quyền phục vụ (ownership) một số partition từ broker cũ sang broker mới mà không phải di chuyển dữ liệu, do đó quá trình cân bằng tải (rebalancing) diễn ra gần như tức thời. Ngược lại, Kafka gắn chặt dữ liệu với broker: mỗi partition thuộc về một broker cụ thể, khi thêm broker mới phải sao chép toàn bộ partition (cả dữ liệu) sang broker đó - quá trình này tốn thời gian và băng thông đáng kể.
+
+Tuy nhiên, với quy mô bài toán hệ gợi ý không yêu cầu thông lượng hàng chục triệu sự kiện mỗi giây hay phải thay đổi số broker thường xuyên, nhược điểm về rebalancing của Kafka không phải vấn đề nghiêm trọng. Bù lại, Kafka có cộng đồng lớn hơn, công cụ hỗ trợ (tooling) phong phú, tài liệu chi tiết hơn và đã được kiểm chứng trong thực tế (production) ở quy mô cực lớn tại nhiều công ty như LinkedIn, Uber, Netflix - trong khi Pulsar còn tương đối mới và ít kinh nghiệm triển khai thực tế hơn.
+
+Nhờ các đặc điểm này, cùng với cộng đồng lớn và đã được kiểm chứng trong thực tế suốt thời gian dài, Kafka phù hợp cho các hệ thống cần xử lý khối lượng sự kiện lớn như hệ gợi ý thời gian thực.
+
+\subsection{So sánh các công nghệ xử lý dữ liệu phân tán}
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{} & \textbf{Apache Spark} & \textbf{Apache Flink} & \textbf{Hadoop MR} \\
+\hline
+Mô hình xử lý & Micro-batch & True streaming & Batch-only \\
+\hline
+Độ trễ streaming & 100ms–vài s & Sub-ms & Không áp dụng \\
+\hline
+Batch & In-memory & Bounded stream & Disk-based \\
+\hline
+Unified engine & Có & Có (stream-first) & Không \\
+\hline
+Tích hợp Kafka & Native & Native & Không \\
+\hline
+\end{tabular}
+}
+\caption{So sánh Apache Spark với Apache Flink và Hadoop MapReduce}
+\label{tab:spark_compare}
+\end{table}
+
+Trong hệ thống gợi ý, công nghệ xử lý dữ liệu phân tán đảm nhận hai nhóm tác vụ: các tác vụ batch (tính toán ma trận đồng xuất hiện, huấn luyện mô hình, thống kê định kỳ trên toàn bộ dữ liệu lịch sử) và các tác vụ streaming (cập nhật chỉ số thống kê, kết quả gợi ý và phát hiện bất thường theo thời gian thực khi có sự kiện mới). Ba lựa chọn phổ biến được xem xét là Hadoop MapReduce, Apache Flink và Apache Spark.
+
+Hadoop MapReduce là thế hệ đầu tiên của xử lý dữ liệu lớn. Kiến trúc của nó buộc phải ghi kết quả trung gian giữa các giai đoạn (stage) xuống đĩa qua HDFS (Hadoop Distributed File System) trước khi chuyển sang giai đoạn tiếp theo. Điều này gây ra độ trễ I/O (input/output) rất lớn, đặc biệt khi cần nhiều vòng lặp tính toán - mỗi vòng lặp đều phải đọc từ đĩa và ghi lại đĩa. Hậu quả là MapReduce không thể đáp ứng yêu cầu thời gian thực. Ngoài ra, MapReduce chỉ xử lý được batch, không hỗ trợ streaming, buộc phải kết hợp với một công cụ streaming riêng biệt.
+
+Apache Flink sử dụng kiến trúc streaming thuần túy (true streaming architecture), trong đó mỗi sự kiện được xử lý ngay khi đến (event-at-a-time) thay vì gom thành lô như Spark. Điều này cho phép Flink đạt độ trễ streaming thấp hơn đáng kể so với Spark về mặt lý thuyết. Flink cũng có cơ chế quản lý trạng thái (state management) tốt hơn nhờ checkpointing phân tán dựa trên thuật toán Chandy-Lamport, cho phép khôi phục chính xác từng sự kiện (exactly-once semantics) mà không ảnh hưởng đến độ trễ. Tuy nhiên, Flink có hệ sinh thái học máy (machine learning ecosystem) kém phát triển hơn Spark MLlib, PyFlink chưa ổn định bằng PySpark, và cộng đồng người dùng còn nhỏ hơn đáng kể \cite{spark_vs_flink_aws,spark_vs_flink_estuary}.
+
+Apache Spark sử dụng mô hình xử lý micro-batch: thay vì xử lý từng sự kiện một, Spark gom các sự kiện đến trong một khoảng thời gian nhỏ (ví dụ 500ms) thành một lô và xử lý toàn bộ lô đó như một batch nhỏ. Nhờ đó, Spark có thể dùng chung công cụ xử lý (unified execution engine) cho cả batch lẫn streaming, tránh phải duy trì hai hệ thống riêng biệt. Spark đạt tốc độ vượt trội so với MapReduce nhờ ba yếu tố kỹ thuật chính:
+
+\begin{itemize}
+    \item \textbf{Xử lý trong bộ nhớ (in-memory processing):} Spark lưu dữ liệu trong RAM thay vì ghi xuống đĩa giữa các giai đoạn. Bộ nhớ đệm (cache) cho phép tái sử dụng dữ liệu đã xử lý qua nhiều phép biến đổi (transformation) mà không cần đọc lại từ đĩa \cite{spark_rdd}.
+    \item \textbf{Đồ thị xử lý có hướng không chu trình (DAG - Directed Acyclic Graph):} Spark Core xây dựng toàn bộ kế hoạch thực thi dưới dạng DAG, cho phép tối ưu hóa toàn cục - gộp các phép biến đổi có thể thực hiện cùng nhau, loại bỏ các bước trung gian không cần thiết.
+    \item \textbf{Đánh giá lười (lazy evaluation) và bộ tối ưu hóa Catalyst:} Các phép biến đổi không được thực thi ngay mà chỉ được ghi nhận, Spark mới tính toán khi gặp hành động (action) như collect hoặc save. Điều này cho phép Catalyst optimizer tối ưu toàn bộ kế hoạch truy vấn trước khi chạy, bao gồm đẩy bộ lọc xuống sớm (predicate pushdown), sắp xếp lại phép join và chọn chiến lược thực thi tối ưu \cite{spark_sql}.
+\end{itemize}
+
+Spark được lựa chọn vì:
+\begin{itemize}
+    \item \textbf{Công cụ thống nhất (unified engine):} Cùng một framework xử lý cả batch (tính toán ma trận, huấn luyện mô hình) lẫn streaming (cập nhật gợi ý thời gian thực). Không cần duy trì hai hệ thống riêng biệt, giảm độ phức tạp vận hành.
+    \item \textbf{In-memory processing:} Nhanh hơn MapReduce từ 10 đến 100 lần cho các tác vụ iterative, đặc biệt quan trọng với huấn luyện mô hình học máy có nhiều vòng lặp.
+    \item \textbf{Tích hợp Kafka gốc (native Kafka integration):} Structured Streaming cung cấp source connector đọc trực tiếp từ Kafka với cơ chế checkpoint tự động quản lý offset, đảm bảo exactly-once semantics.
+    \item \textbf{Ecosystem học máy:} MLlib cung cấp các thuật toán lọc cộng tác (collaborative filtering), phân cụm (clustering) và hồi quy (regression) - phù hợp để xây dựng các pipeline gợi ý.
+    \item \textbf{Yêu cầu độ trễ phù hợp:} Hệ gợi ý cần độ trễ vài giây, không yêu cầu sub-millisecond như phát hiện gian lận (fraud detection). Micro-batch của Spark (100ms – vài giây) đáp ứng đủ mà không cần kiến trúc true streaming phức tạp của Flink.
+\end{itemize}
+
+\subsection{So sánh các công nghệ lưu trữ trong bộ nhớ (in-memory)}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{} & \textbf{Redis} & \textbf{Memcached} \\
+\hline
+Kiểu dữ liệu & String, List, Hash, Set, ZSet, Stream & String only \\
+\hline
+Persistence & RDB + AOF & Không \\
+\hline
+Replication & Master-replica (tích hợp sẵn) & Client-side sharding \\
+\hline
+TTL per-key & Có & Có \\
+\hline
+Độ trễ (p50) & 0.1–0.3ms & 0.08–0.2ms \\
+\hline
+Distributed & Redis Cluster & Client-side \\
+\hline
+Pub/Sub & Có & Không \\
+\hline
+\end{tabular}
+\caption{So sánh Redis với Memcached}
+\label{tab:redis_compare}
+\end{table}
+
+Trong hệ thống gợi ý, lưu trữ trong bộ nhớ đảm nhận hai vai trò chính: lưu lịch sử tương tác của phiên người dùng hiện tại để tính toán gợi ý theo thời gian thực (session buffer) và lưu kết quả gợi ý đã tính toán trước đó để tránh phải tính toán lại (cache). Hai lựa chọn mã nguồn mở phổ biến là Redis và Memcached.
+
+Memcached là hệ thống cache phân tán đơn giản, được thiết kế với mục tiêu duy nhất: lưu trữ và truy xuất cặp key-value dạng string với tốc độ cao nhất có thể. Nhờ kiến trúc đa luồng (multi-threaded), Memcached nhanh hơn Redis cho các thao tác GET/SET cơ bản trong trường hợp đơn luồng. Tuy nhiên, Memcached có hai hạn chế kỹ thuật lớn. Thứ nhất, nó chỉ hỗ trợ kiểu dữ liệu string - không thể lưu một danh sách (list) rồi đọc các phần tử theo thứ tự thời gian như Redis với List. Thứ hai, Memcached không có cơ chế lưu trữ bền vững (persistence): khi server khởi động lại, toàn bộ dữ liệu mất hoàn toàn. Ngoài ra, Memcached không hỗ trợ replication tích hợp sẵn, việc phân tán dữ liệu phải dựa vào client-side sharding (phân mảnh từ phía client) - khi thêm hoặc bớt server, ứng dụng phải tự quản lý lại việc phân phối key, gây phức tạp vận hành \cite{redis_vs_memcached_techplained}.
+
+Redis sử dụng kiến trúc đơn luồng (single-threaded event loop) dựa trên cơ chế epoll (trên Linux) hoặc kqueue (trên FreeBSD/macOS), cho phép xử lý hàng nghìn kết nối đồng thời trên một luồng duy nhất mà không gặp vấn đề tranh chấp tài nguyên (race condition) hay khóa đồng bộ (locking) như các hệ thống đa luồng. Redis cung cấp nhiều kiểu dữ liệu phức tạp ngoài string: List (danh sách có thứ tự, hỗ trợ thao tác hai đầu RPUSH/LPOP với độ phức tạp O(1)), Hash (bảng băm), Set (tập hợp), Sorted Set (tập hợp có thứ tự với điểm số) và Stream (cấu trúc log). Redis hỗ trợ hai cơ chế ghi dữ liệu ra đĩa: RDB (snapshot định kỳ toàn bộ dữ liệu) và AOF (append-only file ghi lại mọi thao tác ghi), giúp dữ liệu không bị mất khi khởi động lại. Về phân tán, Redis Cluster tự động phân chia dữ liệu trên các node (automatic sharding) và hỗ trợ sao chép master-replica với khả năng chuyển đổi dự phòng tự động (automatic failover).
+
+Redis được lựa chọn vì:
+\begin{itemize}
+    \item \textbf{Kiểu dữ liệu List phù hợp cho session buffer:} Hệ thống cần ghi lịch sử sự kiện theo thứ tự thời gian (dùng RPUSH để thêm sự kiện mới vào cuối danh sách) và đọc lại danh sách các sự kiện gần đây (dùng LRANGE). Memcached không thể làm điều này vì chỉ hỗ trợ string.
+    \item \textbf{Persistence với RDB/AOF:} Cho phép khôi phục session buffer nếu Redis restart - quan trọng trong môi trường thực tế (production), khác với Memcached mất toàn bộ dữ liệu sau khi khởi động lại.
+    \item \textbf{TTL per-key:} Tự động xóa session đã hết hạn (ví dụ sau 30 phút) mà không cần logic dọn dẹp từ phía ứng dụng.
+    \item \textbf{Redis Cluster:} Cho phép mở rộng theo chiều ngang khi khối lượng dữ liệu session tăng lên, với khả năng tự động phân mảnh (automatic sharding) và chuyển đổi dự phòng (failover).
+    \item \textbf{Pub/Sub:} Có thể dùng làm cầu nối nhẹ giữa các thành phần nếu cần trong tương lai - đây là tính năng không có trong Memcached.
+\end{itemize}
+
+\subsection{So sánh các hệ quản trị cơ sở dữ liệu}
+
+\begin{table}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{} & \textbf{PostgreSQL} & \textbf{MongoDB} & \textbf{MySQL} \\
+\hline
+Mô hình & Quan hệ (relational) & Tài liệu (document) & Quan hệ (relational) \\
+\hline
+ACID & Đầy đủ (SSI) & Multi-document (v4.0+) & Đầy đủ (InnoDB) \\
+\hline
+JSON support & JSONB + GIN index & BSON (native) & JSON (hạn chế) \\
+\hline
+Truy vấn phức tạp & Window functions, CTEs & Aggregation pipeline & Hạn chế hơn \\
+\hline
+Joins & Native, optimizer mạnh & \$lookup (hạn chế) & Native, optimizer yếu hơn \\
+\hline
+JDBC (Spark sink) & Có & Community driver & Có \\
+\hline
+Extensions & 1.000+ (PostGIS, pgvector) & Không & Hạn chế \\
+\hline
+Tuân thủ chuẩn SQL & Rất cao & Không (MQL) & Trung bình \\
+\hline
+\end{tabular}
+}
+\caption{So sánh PostgreSQL với MongoDB và MySQL}
+\label{tab:postgresql_compare}
+\end{table}
+
+Cơ sở dữ liệu đóng vai trò kho lưu trữ tập trung toàn bộ dữ liệu của hệ thống gợi ý: kết quả thống kê, log sự kiện, thông tin phục vụ dashboard và phục vụ truy vấn phân tích. Ba lựa chọn được xem xét gồm PostgreSQL, MongoDB và MySQL.
+
+MongoDB là cơ sở dữ liệu tài liệu (document database) lưu dữ liệu dưới dạng BSON (binary JSON), cho phép schema linh hoạt - mỗi document có thể có cấu trúc khác nhau mà không cần định nghĩa trước. Điều này phù hợp với dữ liệu phi cấu trúc hoặc ít thay đổi về cấu trúc. Tuy nhiên, MongoDB yếu ở hai mặt quan trọng với bài toán phân tích: thứ nhất, phép nối (join) chỉ dùng \$lookup với hiệu năng kém hơn nhiều so với join của cơ sở dữ liệu quan hệ; thứ hai, aggregation pipeline không mạnh bằng window functions và CTEs (Common Table Expressions) của SQL khi cần tính toán trên các cửa sổ dữ liệu (ví dụ: xếp hạng theo thời gian, tính tổng lũy kế) \cite{postgresql_vs_mongodb_devto}.
+
+MySQL là cơ sở dữ liệu quan hệ phổ biến nhất hiện nay, đặc biệt trong lĩnh vực web. Nó hỗ trợ ACID đầy đủ qua InnoDB và có JDBC connector cho Spark. Tuy nhiên, MySQL có hai hạn chế kỹ thuật so với PostgreSQL: thứ nhất, bộ tối ưu hóa truy vấn (query optimizer) yếu hơn, dễ chọn sai kế hoạch thực thi cho những truy vấn có nhiều join hoặc subquery phức tạp; thứ hai, JSON support chỉ ở mức cơ bản, không có kiểu JSONB riêng và không hỗ trợ GIN index cho truy vấn JSON hiệu quả. MySQL cũng có ít extensions phân tích hơn \cite{postgresql_vs_mysql_askantech}.
+
+PostgreSQL là hệ quản trị cơ sở dữ liệu quan hệ đối tượng (object-relational DBMS) mã nguồn mở. Về mặt kỹ thuật, PostgreSQL có ba ưu điểm chính giúp nó phù hợp với hệ thống phân tích dữ liệu. Thứ nhất, MVCC (Multiversion Concurrency Control) cho phép các tiến trình đọc (read) không bị chặn bởi tiến trình ghi (write) và ngược lại - quan trọng khi Spark liên tục ghi dữ liệu (upsert) trong khi API phục vụ dashboard truy vấn đọc đồng thời. Thứ hai, JSONB (binary JSON) lưu dữ liệu JSON dưới dạng nhị phân đã được phân tích (decomposed binary format), không phải chuỗi văn bản thuần túy - điều này cho phép truy vấn JSON hiệu quả với GIN index và chỉ lưu dữ liệu nhỏ hơn so với lưu dưới dạng chuỗi. Thứ ba, window functions và CTEs cung cấp khả năng tính toán phân tích mạnh mẽ mà không cần phải xuất dữ liệu ra công cụ bên ngoài \cite{postgresql_vs_mongodb_modern}.
+
+PostgreSQL được lựa chọn vì:
+\begin{itemize}
+    \item \textbf{MVCC:} Cho phép Spark ghi dữ liệu (upsert các bảng thống kê theo thời gian thực) đồng thời với API phục vụ dashboard truy vấn đọc mà không bị khóa (locking) hay tranh chấp.
+    \item \textbf{JSONB + GIN:} Vừa lưu dữ liệu có cấu trúc (quan hệ) vừa lưu dữ liệu nửa cấu trúc (JSON) - linh hoạt cho các trường hợp cần schema động.
+    \item \textbf{Window functions và CTEs:} Đáp ứng các truy vấn phân tích như xếp hạng sản phẩm theo thời gian, tính tỷ lệ chuyển đổi (conversion rate), tính tổng lũy kế - tất cả đều thực hiện trong database mà không cần xuất dữ liệu ra bên ngoài.
+    \item \textbf{JDBC connector:} Spark Structured Streaming ghi trực tiếp vào PostgreSQL qua JDBC sink, không cần middleware trung gian.
+    \item \textbf{Ecosystem extensions:} Hơn 1.000 extensions như PostGIS (dữ liệu không gian), pgvector (vector embedding cho AI) - sẵn sàng mở rộng khi cần.
+    \item \textbf{Cộng đồng và tốc độ phát triển:} PostgreSQL có lịch sử phát triển ổn định với chu kỳ phát hành phiên bản mới đều đặn mỗi năm và cộng đồng mã nguồn mở lớn, mang lại nhiều cải tiến về hiệu năng và tính năng.
+\end{itemize}
+
+\end{document}
