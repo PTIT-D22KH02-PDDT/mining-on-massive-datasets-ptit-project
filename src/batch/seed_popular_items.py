@@ -37,9 +37,10 @@ PG_PROPERTIES = {
 
 def main():
     spark = (
-        SparkSession.builder.appName("OTTO-Seed-Popular-Items")
+        SparkSession.builder.master(os.getenv("SPARK_MASTER_URL", "local[*]"))
+        .appName("OTTO-Seed-Popular-Items")
         .config("spark.jars.packages", "org.postgresql:postgresql:42.7.1")
-        .config("spark.driver.memory", "4g")
+        .config("spark.driver.memory", os.getenv("SPARK_DRIVER_MEMORY", "4g"))
         .getOrCreate()
     )
 

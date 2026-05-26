@@ -16,8 +16,6 @@ services:
       - POSTGRES_DB=otto_recommender
       - POSTGRES_USER=otto
       - POSTGRES_PASSWORD=otto123
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
 
@@ -55,6 +53,12 @@ services:
       - POSTGRES_USER=otto
       - POSTGRES_PASSWORD=otto123
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_MASTER_URL=${SPARK_MASTER_URL:-spark://spark-master:7077}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-3g}
+      - SPARK_MAX_OFFSETS_PER_TRIGGER=${SPARK_MAX_OFFSETS_PER_TRIGGER:-10000}
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
 
   setup-jobs:
     image: ${DOCKER_USERNAME:-otto}/otto-setup:${DOCKER_TAG:-latest}
@@ -72,3 +76,7 @@ services:
       - POSTGRES_USER=otto
       - POSTGRES_PASSWORD=otto123
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_MASTER_URL=${SPARK_MASTER_URL:-spark://spark-master:7077}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-3g}
+      - PYSPARK_PYTHON=/usr/bin/python3

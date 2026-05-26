@@ -729,7 +729,8 @@ def start_checkpoint_cleanup():
 
 def main():
     spark = (
-        SparkSession.builder.appName("OTTO-Streaming-Processor")
+        SparkSession.builder.master(os.getenv("SPARK_MASTER_URL", "local[*]"))
+        .appName("OTTO-Streaming-Processor")
         .config("spark.sql.streaming.checkpointLocation", CHECKPOINT_LOCATION)
         .config("spark.sql.streaming.minBatchesToRetain", 10)
         .config(
@@ -753,7 +754,7 @@ def main():
         .option("subscribe", KAFKA_TOPIC)
         .option("startingOffsets", os.getenv("SPARK_STARTING_OFFSETS", "earliest"))
         .option(
-            "maxOffsetsPerTrigger", os.getenv("SPARK_MAX_OFFSETS_PER_TRIGGER", "1000")
+            "maxOffsetsPerTrigger", os.getenv("SPARK_MAX_OFFSETS_PER_TRIGGER", "10000")
         )
         .load()
     )
@@ -774,7 +775,7 @@ def main():
 
     query = (
         events_df.writeStream.outputMode("update")
-        .trigger(processingTime="10 seconds")
+        .trigger(processingTime="20 seconds")
         .queryName("Unified-OTTO-Streaming-Query")
         .foreachBatch(unified_foreach_batch)
         .start()
