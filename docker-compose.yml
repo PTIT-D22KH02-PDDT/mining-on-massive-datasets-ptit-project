@@ -103,6 +103,68 @@ services:
           cpus: '1.0'
           memory: 2g
 
+  # === Spark Cluster ===
+
+  spark-master:
+    image: apache/spark:3.5.0
+    container_name: spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
+    ports:
+      - "7077:7077"
+      - "8080:8080"
+    environment:
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=python3
+    volumes:
+      - ./datasets:/opt/app/datasets:ro
+      - ./spark-checkpoints:/tmp/spark-checkpoints
+    networks:
+      - spark-net
+
+  spark-worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark-worker
+    image: ${DOCKER_USERNAME:-otto}/otto-spark-worker:${DOCKER_TAG:-latest}
+    container_name: spark-worker-1
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "--memory", "4G", "--cores", "2", "spark://spark-master:7077"]
+    depends_on:
+      - spark-master
+    environment:
+      - PYSPARK_PYTHON=/usr/bin/python3
+    volumes:
+      - ./datasets:/opt/app/datasets:ro
+      - ./spark-checkpoints:/tmp/spark-checkpoints
+    networks:
+      - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4g
+
+  spark-worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark-worker
+    image: ${DOCKER_USERNAME:-otto}/otto-spark-worker:${DOCKER_TAG:-latest}
+    container_name: spark-worker-2
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "--memory", "4G", "--cores", "2", "spark://spark-master:7077"]
+    depends_on:
+      - spark-master
+    environment:
+      - PYSPARK_PYTHON=/usr/bin/python3
+    volumes:
+      - ./datasets:/opt/app/datasets:ro
+      - ./spark-checkpoints:/tmp/spark-checkpoints
+    networks:
+      - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4g
+
   # === One-time Setup ===
 
   setup-jobs:
@@ -129,7 +191,10 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
       - POSTGRES_DB=${POSTGRES_DB:-otto_recommender}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - PYSPARK_PYTHON=python3
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - SPARK_MASTER_URL=${SPARK_MASTER_URL:-spark://spark-master:7077}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-3g}
     networks:
       - spark-net
     volumes:
@@ -224,6 +289,12 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-otto}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_MASTER_URL=${SPARK_MASTER_URL:-spark://spark-master:7077}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-3g}
+      - SPARK_MAX_OFFSETS_PER_TRIGGER=${SPARK_MAX_OFFSETS_PER_TRIGGER:-10000}
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
     volumes:
       - ./spark-checkpoints:/tmp/spark-checkpoints
       - ./datasets:/opt/app/datasets

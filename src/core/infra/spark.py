@@ -5,6 +5,7 @@ Reads spark settings from the global config (config/config.yml).
 """
 
 import logging
+import os
 from typing import Tuple
 
 from pyspark.sql import SparkSession
@@ -39,7 +40,7 @@ def _start_spark(
     Start Spark session using settings from config/config.yml.
     """
     sc = _spark_cfg()
-    master = sc.get("master", "local[*]")
+    master = os.getenv("SPARK_MASTER_URL") or sc.get("master", "local[*]")
     name = app_name or sc.get("app_name", "pyspark-app")
 
     builder = SparkSession.builder.master(master).appName(name)

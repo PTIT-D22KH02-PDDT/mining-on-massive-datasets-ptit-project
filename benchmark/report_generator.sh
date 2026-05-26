@@ -24,11 +24,16 @@ query_db() {
   echo "========================================================================"
   echo ""
 
-  # 1. System Info
+  # Detect Spark mode (local vs cluster)
+  SPARK_MASTER_URL=$(docker exec otto-spark-streaming sh -c 'echo ${SPARK_MASTER_URL:-local[*]}' 2>/dev/null)
+  SPARK_MASTER_LABEL="local"
+  [ -n "$SPARK_MASTER_URL" ] && [ "$SPARK_MASTER_URL" != "local[*]" ] && SPARK_MASTER_LABEL="cluster ($SPARK_MASTER_URL)"
   echo "--- SYSTEM INFO ---"
   echo "CPU cores: $(nproc)"
   echo "Memory: $(free -h | grep Mem | awk '{print $2}') total"
   echo "Disk: $(df -h . | tail -1 | awk '{print $2}') total, $(df -h . | tail -1 | awk '{print $5}') used"
+  echo "Spark mode: ${SPARK_MASTER_LABEL}"
+  echo "Workers: $(docker ps --filter name=spark-worker --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')"
   echo ""
 
   # 2. Docker containers
@@ -54,14 +59,33 @@ query_db() {
   # 4. Spark streaming metrics
   echo "--- SPARK STREAMING PERFORMANCE ---"
   SPARK_DATA=$(query_db spark)
+  SPARK_FOUND=false
   if [ -n "$SPARK_DATA" ] && [ "$(echo "$SPARK_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('found',True))" 2>/dev/null)" != "False" ]; then
+    SPARK_FOUND=true
     echo "  $(echo "$SPARK_DATA" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
 print(f'batches={d.get(\"batches\",\"?\")} avg_ms={d.get(\"avg_ms\",\"?\")}ms max_ms={d.get(\"max_ms\",\"?\")}ms avg_rps={d.get(\"avg_rps\",\"?\")} rows/s total_rows={d.get(\"total_rows\",\"?\")}')" 2>/dev/null)"
   else
-    echo "  No spark_metrics found (is Spark streaming running?)"
-    [ -n "$SPARK_DATA" ] && echo "  Debug: $SPARK_DATA"
+    # fallback to JSON file on disk
+    SPARK_JSON=$(ls -t ${RESULTS_DIR}/spark_metrics_*.json 2>/dev/null | head -1)
+    if [ -f "$SPARK_JSON" ]; then
+      ROWS=$(python3 -c "
+import json
+d=json.load(open('$SPARK_JSON'))
+rows=d.get('data',[])
+if rows:
+    durations=[r.get('batch_duration_ms',0) for r in rows]
+    rps=[r.get('process_rows_per_second',0) for r in rows]
+    print(f'batches={len(rows)} avg_ms={sum(durations)//len(durations)}ms max_ms={max(durations)}ms avg_rps={sum(rps)//len(rps)} rows/s (from saved JSON)')
+else:
+    print('No data in spark_metrics JSON')
+" 2>/dev/null)
+      echo "  ${ROWS:-No spark_metrics JSON found}"
+    else
+      echo "  No spark_metrics found (is Spark streaming running?)"
+      [ -n "$SPARK_DATA" ] && echo "  Debug: $SPARK_DATA"
+    fi
   fi
   echo ""
 
@@ -80,16 +104,27 @@ print(f'events={d.get(\"events\",\"?\")} avg_age={d.get(\"avg_age_s\",\"?\")}s p
 
   # 6. Resource summary
   echo "--- RESOURCE USAGE (AVG during test) ---"
-  STATS_FILE=$(ls -t ${RESULTS_DIR}/stats_*.csv 2>/dev/null | head -1)
-  if [ -f "$STATS_FILE" ]; then
-    for svc in "otto-api" "otto-spark-streaming" "kafka" "otto-postgres" "redis"; do
-      AVG_CPU=$(grep "$svc" "$STATS_FILE" | awk -F',' '{gsub(/%/,"",$3); sum+=$3; count++} END{if(count>0) printf "%.1f", sum/count; else print "N/A"}')
-      PEAK_CPU=$(grep "$svc" "$STATS_FILE" | awk -F',' '{gsub(/%/,"",$3); if($3>max) max=$3} END{if(max>0) printf "%.1f", max; else print "N/A"}')
-      AVG_MEM=$(grep "$svc" "$STATS_FILE" | awk -F',' '{print $4}' | grep -oP '[\d.]+' | awk '{sum+=$1; count++} END{if(count>0) printf "%.0f", sum/count; else print "N/A"}')
-      echo "  $svc: CPU avg=${AVG_CPU}% peak=${PEAK_CPU}% | Mem avg=${AVG_MEM}MB"
+  STATS_FILES=$(ls -t ${RESULTS_DIR}/during_*.csv 2>/dev/null)
+  if [ -n "$STATS_FILES" ]; then
+    COMBINED_CSV=$(mktemp)
+    for f in $STATS_FILES; do
+      # skip header of subsequent files
+      if [ ! -s "$COMBINED_CSV" ]; then
+        cat "$f" > "$COMBINED_CSV"
+      else
+        tail -n +2 "$f" >> "$COMBINED_CSV"
+      fi
     done
+    for svc in "^otto-api," "^otto-spark-streaming," "^kafka," "spark-master" "spark-worker-1" "spark-worker-2" "postgres-1" "redis-1"; do
+      AVG_CPU=$(grep "$svc" "$COMBINED_CSV" | awk -F',' '{gsub(/%/,"",$3); sum+=$3; count++} END{if(count>0) printf "%.1f", sum/count; else print "N/A"}')
+      PEAK_CPU=$(grep "$svc" "$COMBINED_CSV" | awk -F',' '{gsub(/%/,"",$3); if($3>max) max=$3} END{if(max>0) printf "%.1f", max; else print "N/A"}')
+      AVG_MEM=$(grep "$svc" "$COMBINED_CSV" | awk -F',' '{print $4}' | grep -oP '[\d.]+' | awk '{sum+=$1; count++} END{if(count>0) printf "%.0f", sum/count; else print "N/A"}')
+      LABEL=$(echo "$svc" | sed 's/^\^//; s/,$//')
+      echo "  ${LABEL}: CPU avg=${AVG_CPU}% peak=${PEAK_CPU}% | Mem avg=${AVG_MEM}MB"
+    done
+    rm -f "$COMBINED_CSV"
   else
-    echo "  No docker stats CSV found (looked for stats_*.csv)"
+    echo "  No docker stats CSV found (looked for during_*.csv)"
   fi
 
   # 7. SLA Summary
@@ -151,13 +186,31 @@ print('PASS' if r < 0.01 else 'FAIL')
     echo "  Kafka producer TPS:   N/A"
   fi
 
-  # Spark stability (from DB query via JSON)
-  SPARK_FOUND=$(echo "$SPARK_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('found',True))" 2>/dev/null)
-  if [ -n "$SPARK_DATA" ] && [ "$SPARK_FOUND" != "False" ]; then
+  # Spark stability (from DB query or JSON fallback)
+  SPARK_FOUND_VALUE=$(echo "$SPARK_DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('found',True))" 2>/dev/null)
+  if [ "$SPARK_FOUND" = "true" ]; then
     STABILITY=$(echo "$SPARK_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('avg_s','N/A'))" 2>/dev/null)
-    SPARK_OK=$(python3 -c "s=float('${STABILITY:-0}'); t=float('${BATCHES:-1}'); print('FAIL' if s > 10 else ('WARN' if s > 8 else 'PASS'))" 2>/dev/null)
     BATCHES=$(echo "$SPARK_DATA" | python3 -c "import sys,json; print(json.load(sys.stdin).get('batches',0))" 2>/dev/null)
-    echo "  Spark batch duration: ${STABILITY:-N/A}s  [${SPARK_OK:-?}]"
+  elif [ -f "$SPARK_JSON" ]; then
+    # read from JSON file directly
+    STABILITY=$(python3 -c "
+import json
+d=json.load(open('$SPARK_JSON'))
+rows=d.get('data',[])
+if rows:
+    avg=sum(r.get('batch_duration_ms',0) for r in rows)/len(rows)/1000
+    print(f'{avg:.2f}')
+else:
+    print('N/A')
+" 2>/dev/null)
+    BATCHES=$(python3 -c "
+import json
+print(json.load(open('$SPARK_JSON')).get('rows',0))
+" 2>/dev/null)
+  fi
+  if [ -n "${STABILITY}" ] && [ "${STABILITY}" != "N/A" ]; then
+    SPARK_OK=$(python3 -c "s=float('${STABILITY:-0}'); print('FAIL' if s > 10 else ('WARN' if s > 8 else 'PASS'))" 2>/dev/null)
+    echo "  Spark batch duration: ${STABILITY}s  [${SPARK_OK:-?}]"
     echo "  Spark batches:        ${BATCHES:-0}"
   else
     echo "  Spark stability:      N/A (no spark_metrics found)"
