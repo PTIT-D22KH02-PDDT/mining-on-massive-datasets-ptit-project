@@ -8,8 +8,8 @@ import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
-
 import redis
+from src.core import SparkService
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,69 @@ class SessionManager:
             logger.info("Connected to Redis")
         except redis.ConnectionError:
             logger.warning("Redis not available — session management will fail")
+
+    def load_covisitation_matrix(self, parquet_path: str) -> None:
+        """
+        Loads the co-visitation matrix from Parquet file to Redis using Spark.
+        Matches the loading logic in test_load_covisited_matrix_to_redis.py.
+        """
+        logger.info(f"Loading co-visitation matrix from {parquet_path} into Redis using Spark...")
+
+        spark_service = SparkService()
+        spark = spark_service.spark_session
+        df = spark.read.parquet(str(parquet_path))
+        logger.info(f"Total rows to load from Parquet: {df.count()}")
+        
+        # Giới hạn số lượng kết nối đồng thời vào Redis (tránh làm ngộp Redis)
+        df_optimized = df.coalesce(10)
+        
+        # Define partition writer
+        def send_partition_to_redis(partition):
+            host = os.getenv("REDIS_HOST", "localhost")
+            port = int(os.getenv("REDIS_PORT", "6379"))
+            
+            r = redis.Redis(host=host, port=port, db=0, decode_responses=True)
+            pipe = r.pipeline(transaction=False)
+            
+            batch_size = 5000
+            count = 0
+            
+            for row in partition:
+                aid = row['aid']
+                candidates = row['candidates']
+                aid2_list = [str(c['aid2']) for c in candidates]
+                
+                if aid2_list:
+                    key = f"covis:{aid}"
+                    pipe.delete(key)
+                    pipe.rpush(key, *aid2_list)
+                    count += 1
+                    
+                if count % batch_size == 0:
+                    pipe.execute()
+            
+            pipe.execute()
+            
+        df_optimized.foreachPartition(send_partition_to_redis)
+        logger.info("Successfully loaded co-visitation matrix to Redis!")
+        
+        spark.stop()
+
+    def get_covisitation(self, aid: int | str, top_k: int = 20) -> dict:
+        """
+        Retrieve related products (candidates) for a single product (aid) from Redis.
+        """
+        key = f"covis:{aid}"
+        raw_list = self.redis.lrange(key, 0, top_k - 1)
+        raw_list = [int(x) for x in raw_list]
+        orders = raw_list[:2]
+        carts = raw_list[2:4] if len(raw_list) > 5 else []
+        clicks = raw_list[4:top_k] if len(raw_list) > 10 else []
+        return {
+            "orders": orders,
+            "carts": carts,
+            "clicks": clicks,
+        }
 
     def _key(self, session_id: int | str) -> str:
         return f"session:{session_id}"

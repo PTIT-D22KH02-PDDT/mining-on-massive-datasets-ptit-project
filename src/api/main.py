@@ -29,13 +29,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from src.core.constant import COVISITATION_MATRIX_FILEPATH
 from src.api.cold_start import ColdStartRecommender
 from src.api.db import Database
 from src.api.session_manager import SessionManager
 from src.core.infra.kafka_queue import KafkaMessage
 from src.evaluation.metrics import mrr_at_k, ndcg_at_k, recall_at_k
 from src.serving.covisitation_recommender import CovisitationRecommender
-from src.serving.sasrec_recommender import SASRecRecommender
+# from src.serving.sasrec_recommender import SASRecRecommender
 
 
 # --- JSON Logging Setup (Phase 2.2) ---
@@ -68,6 +69,62 @@ cold_start: Optional[ColdStartRecommender] = None
 covisitation: Optional[CovisitationRecommender] = None
 sasrec: Optional[SASRecRecommender] = None
 kafka_producer = None
+background_queue: Optional[asyncio.Queue] = None
+
+
+async def background_recompute_worker():
+    """
+    Write-Path async worker:
+    - session < 5: tính covisitation từ Redis cho toàn bộ session aids
+    - session >= 5: gọi SASRec remote model
+    - Lưu kết quả vào Redis cache (recs:{session_id})
+    """
+    while True:
+        try:
+            if not background_queue:
+                await asyncio.sleep(1)
+                continue
+            event = await background_queue.get()
+            session_id = event["session_id"]
+            corr_id = event.get("corr_id", "-")
+            
+            # Lấy toàn bộ session aids từ Redis
+            session_aids = session_mgr.get_session_aids(session_id)
+            session_length = len(session_aids)
+            
+            if session_length == 0:
+                background_queue.task_done()
+                continue
+            
+            if session_length >= 5:
+                # === SASRec Deep Learning ===
+                model_used = "sasrec_deep_learning"
+                try:
+                    recs = call_sasrec_with_fallback(
+                        session_aids, TOP_K, request_id=corr_id
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[Worker][{corr_id}] SASRec failed, fallback to covisitation: {e}"
+                    )
+                    model_used = "sasrec_fallback_covisitation"
+                    recs = session_mgr.get_covisitation(session_aids, TOP_K)
+            else:
+                # === Covisitation từ Redis (multi-aid) ===
+                model_used = "covisitation_redis"
+                recs = session_mgr.get_covisitation(session_aids, TOP_K)
+            
+            # Lưu kết quả vào Redis cache
+            session_mgr.store_recommendations(session_id, recs)
+            logger.info(
+                f"[Worker][{corr_id}] Recomputed recs for session {session_id} "
+                f"(len={session_length}, model={model_used})"
+            )
+            background_queue.task_done()
+        except Exception as e:
+            logger.error(f"[Worker] Error: {e}")
+            await asyncio.sleep(1)
+
 
 TOP_K = 20
 
@@ -283,13 +340,24 @@ async def lifespan(app: FastAPI):
         covisitation, \
         sasrec, \
         kafka_producer, \
-        kafka_queue
+        kafka_queue, \
+        background_queue
 
     logger.info("Starting OTTO API Server...")
 
     redis_host = os.getenv("REDIS_HOST", "localhost")
     redis_port = int(os.getenv("REDIS_PORT", "6379"))
     session_mgr = SessionManager(host=redis_host, port=redis_port)
+
+    # Check if co-visitation matrix is already loaded
+    try:
+        keys = session_mgr.redis.scan(cursor=0, match="covis:*", count=1)[1]
+        if not keys:
+            session_mgr.load_covisitation_matrix(COVISITATION_MATRIX_FILEPATH)
+        else:
+            logger.info("Co-visitation matrix already loaded in Redis (found existing covis:* keys)")
+    except Exception as e:
+        logger.warning(f"Failed to check/load co-visitation matrix: {e}")
 
     pg_host = os.getenv("POSTGRES_HOST", "localhost")
     pg_port = int(os.getenv("POSTGRES_PORT", "5432"))
@@ -299,15 +367,6 @@ async def lifespan(app: FastAPI):
     db = Database(
         host=pg_host, port=pg_port, dbname=pg_db, user=pg_user, password=pg_pass
     )
-
-    try:
-        covisitation = CovisitationRecommender(matrix_dir="datasets")
-        logger.info("Covisitation recommender loaded")
-    except Exception as e:
-        logger.warning(f"Covisitation not available: {e}")
-        covisitation = None
-
-    cold_start = ColdStartRecommender(db=db, covisitation_recommender=covisitation)
 
     remote_url = os.getenv(
         "SASREC_REMOTE_URL", "https://rs-model1.vucongtuanduong.dpdns.org/"
@@ -348,11 +407,21 @@ async def lifespan(app: FastAPI):
 
     kafka_init_task = asyncio.create_task(_init_kafka_background())
 
+    global background_queue
+    background_queue = asyncio.Queue(maxsize=1000)
+    worker_task = asyncio.create_task(background_recompute_worker())
+
     asyncio.create_task(flush_db_buffers_task())
     asyncio.create_task(refresh_ranks_task())
-    logger.info("Background tasks started (DB buffer flush, rank refresh)")
+    logger.info("Background tasks started (DB buffer flush, rank refresh, background recompute)")
 
     yield
+
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
 
     if kafka_init_task and not kafka_init_task.done():
         kafka_init_task.cancel()
@@ -405,66 +474,50 @@ async def receive_event(event: EventRequest, request: Request):
         event.session_id, event.aid, event.type, ts
     )
 
-    # 2. Get recommendations (model selection logic)
+    # 2. Get recommendations (Read-Path logic)
     cached_recs = session_mgr.get_last_recommendations(event.session_id)
-    should_recompute = (
-        session_length % 3 == 0 or event.type in ["carts", "orders"] or not cached_recs
-    )
 
-    if not should_recompute and cached_recs:
-        model_used = "cached_hybrid"
+    if cached_recs:
+        # Cache HIT - return precomputed recommendations immediately
+        model_used = "cached"
         recommendations = cached_recs
     else:
-        session_aids = session_mgr.get_session_aids(event.session_id)
-        if session_length < 3:
-            model_used = "cold_start"
-            recommendations = cold_start.recommend(session_aids, TOP_K)
-        elif 3 <= session_length < 10:
-            model_used = "covisitation"
-            if covisitation:
-                try:
-                    recommendations = covisitation.recommend_multi_objective(
-                        session_aids, TOP_K
-                    )
-                    if not any(recommendations.values()):
-                        logger.warning(
-                            f"[{corr_id}] Covisitation no results, falling back to cold_start"
-                        )
-                        model_used = "covisitation_fallback_cold_start"
-                        recommendations = cold_start.recommend(session_aids, TOP_K)
-                except Exception as e:
-                    logger.warning(f"[{corr_id}] Covisitation failed: {e}")
-                    recommendations = cold_start.recommend(session_aids, TOP_K)
-            else:
-                recommendations = cold_start.recommend(session_aids, TOP_K)
+        # Cache MISS - choose strategy based on session length
+        if session_length < 5:
+            # Inline covisitation from Redis (single aid lookup)
+            model_used = "covisitation_redis"
+            recs_list = session_mgr.get_covisitation(event.aid, TOP_K)
+            if not recs_list:
+                model_used = "covisitation_fallback_popular"
+                recs_list = cold_start._get_popular("clicks", TOP_K)
+            recommendations = {
+                "clicks": recs_list,
+                "carts": recs_list,
+                "orders": recs_list,
+            }
         else:
-            model_used = "sasrec_deep_learning"
-            try:
-                recommendations = call_sasrec_with_fallback(
-                    session_aids, TOP_K, request_id=corr_id
-                )
-            except pybreaker.CircuitBreakerError:
-                logger.warning(
-                    f"[{corr_id}] SASRec circuit open, fallback to covisitation"
-                )
-                model_used = "sasrec_fallback_covisitation"
-                if covisitation:
-                    recommendations = covisitation.recommend_multi_objective(
-                        session_aids, TOP_K
-                    )
-                else:
-                    recommendations = cold_start.recommend(session_aids, TOP_K)
-            except Exception as e:
-                logger.error(f"[{corr_id}] SASRec unexpected error: {e}")
-                model_used = "sasrec_error_covisitation"
-                if covisitation:
-                    recommendations = covisitation.recommend_multi_objective(
-                        session_aids, TOP_K
-                    )
-                else:
-                    recommendations = cold_start.recommend(session_aids, TOP_K)
+            # Inline fallback to popular pending recomputation by background worker
+            model_used = "popular_pending_sasrec"
+            recommendations = {
+                "clicks": cold_start._get_popular("clicks", TOP_K),
+                "carts": cold_start._get_popular("carts", TOP_K),
+                "orders": cold_start._get_popular("orders", TOP_K),
+            }
 
-        session_mgr.store_recommendations(event.session_id, recommendations)
+    # 3. Push to background recompute queue (non-blocking Write-Path)
+    should_recompute = session_length >= 5  # Complex model needs updates
+    if should_recompute and background_queue:
+        try:
+            background_queue.put_nowait({
+                "session_id": event.session_id,
+                "session_length": session_length,
+                "event_aid": event.aid,
+                "event_type": event.type,
+                "ts": ts,
+                "corr_id": corr_id,
+            })
+        except asyncio.QueueFull:
+            logger.warning(f"[{corr_id}] Background recompute queue full, skipping task enqueue")
 
     # 3. Publish to Kafka via queue (non-blocking, fire-and-forget)
     if kafka_queue:
@@ -587,28 +640,19 @@ async def get_recommendations(session_id: int, top_k: int = 20):
     session_aids = session_mgr.get_session_aids(session_id)
     session_length = len(session_aids)
 
-    if session_length < 3:
-        model_used = "cold_start"
-        recommendations = cold_start.recommend(session_aids, top_k)
-    elif 3 <= session_length < 10:
-        model_used = "covisitation"
-        if covisitation:
-            recommendations = covisitation.recommend_multi_objective(
-                session_aids, top_k
-            )
-        else:
-            recommendations = cold_start.recommend(session_aids, top_k)
+    if session_length == 0:
+        model_used = "popular"
+        recommendations = cold_start.recommend_empty_session(top_k)
+    elif session_length < 5:
+        model_used = "covisitation_redis"
+        recommendations = session_mgr.get_covisitation(session_aids, top_k)
     else:
         model_used = "sasrec_deep_learning"
         try:
-            recommendations = sasrec.recommend_multi_objective(session_aids, top_k)
+            recommendations = call_sasrec_with_fallback(session_aids, top_k)
         except Exception:
-            if covisitation:
-                recommendations = covisitation.recommend_multi_objective(
-                    session_aids, top_k
-                )
-            else:
-                recommendations = cold_start.recommend(session_aids, top_k)
+            model_used = "sasrec_fallback_covisitation"
+            recommendations = session_mgr.get_covisitation_recommendations(session_aids, top_k)
 
     return {
         "session_id": session_id,

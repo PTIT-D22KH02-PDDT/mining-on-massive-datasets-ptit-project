@@ -57,4 +57,4 @@ spark:
     spark.driver.maxResultSize: "2g"
     spark.memory.fraction: "0.8"
     spark.memory.storageFraction: "0.1"
-    spark.local.dir: "/tmp/spark-temp"
+    spark.local.dir: "/mnt/d/spark-temp"     #sửa đường dẫn lưu dữ liệu tạm thời trong quá trình tính toán của spark nếu ram đầy
