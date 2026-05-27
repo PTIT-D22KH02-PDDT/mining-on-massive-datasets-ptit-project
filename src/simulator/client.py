@@ -3,8 +3,9 @@ Client Simulator — Replays sessions from test.jsonl via HTTP to the API server
 Supports multiple concurrent users via asyncio.
 
 Usage:
-    python -m src.simulator.client --file test.jsonl --sessions 10 --speed 5
-"""
+    python -m src.simulator.client --sessions 10 --speed 5
+    python -m src.simulator.client --interactive    (chạy nhập từng thứ vào)
+    """
 
 import argparse
 import asyncio
@@ -139,6 +140,34 @@ async def run_simulator(
         except Exception:
             pass
 
+async def interactive_mode(api_url: str):
+    """Enter events manually via terminal, see full response."""
+    print("Interactive mode. Enter events one-by-one. Press Ctrl+C to exit.")
+    session_id = input("Session ID: ").strip()
+    async with httpx.AsyncClient() as client:
+        # Check API health first
+        try:
+            resp = await client.get(f"{api_url}/api/health", timeout=5.0)
+            logger.info(f"API Health: {resp.json()}")
+        except Exception as e:
+            logger.error(f"Cannot reach API at {api_url}: {e}")
+            return
+        while True:
+            try:
+                aid = int(input("aid: ").strip())
+                etype = input("type (clicks/carts/orders): ").strip()
+            except (ValueError, EOFError):
+                break
+            payload = {
+                "session_id": int(session_id),
+                "aid": aid,
+                "type": etype,
+                "ts": int(time.time() * 1000),
+            }
+            resp = await client.post(f"{api_url}/api/event", json=payload, timeout=10)
+            print(json.dumps(resp.json(), indent=2))
+            print()
+
 
 def main():
     parser = argparse.ArgumentParser(description="OTTO Session Simulator")
@@ -160,7 +189,14 @@ def main():
     parser.add_argument(
         "--delay", type=float, default=0.3, help="Base delay between events (seconds)"
     )
+    parser.add_argument(
+        "--interactive", action="store_true", help="Interactive mode: enter events manually"
+    )
     args = parser.parse_args()
+
+    if args.interactive:
+        asyncio.run(interactive_mode(api_url=args.api))
+        return
 
     asyncio.run(
         run_simulator(
@@ -172,6 +208,7 @@ def main():
             delay_between_events=args.delay,
         )
     )
+
 
 
 if __name__ == "__main__":
