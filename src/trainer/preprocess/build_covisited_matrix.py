@@ -3,6 +3,16 @@ build_covisit_unified.py
 =========================
 Tạo 1 co-visitation matrix duy nhất, gộp tất cả event type.
 
+Usage:
+    # Build matrix
+    python -m src.trainer.preprocess.build_covisited_matrix
+
+    # Build matrix + load vào Redis
+    python -m src.trainer.preprocess.build_covisited_matrix --load-redis
+
+    # Chỉ load matrix đã có vào Redis
+    python -m src.trainer.preprocess.build_covisited_matrix --load-redis --skip-build
+
 Công thức weight mỗi cặp (aid_a, aid_b) trong 1 session:
     wgt = event_bonus(type_a, type_b)
 
@@ -21,6 +31,10 @@ Output schema (parquet):
     candidates : array<struct<aid2: long, wgt: double>>   ← sorted desc by wgt, top-K
 """
 
+import os
+import argparse
+
+import redis as redis_sync
 from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 from src.core import SparkService
@@ -239,9 +253,100 @@ def build_covisit_unified(
     logger.info("Done!")
 
 
+def _send_partition_to_redis(partition):
+    """Ghi 1 partition Spark vào Redis (dùng trong foreachPartition)."""
+    host = os.getenv("REDIS_IP") or os.getenv("REDIS_HOST", "localhost")
+    port = int(os.getenv("REDIS_PORT", "6379"))
+    r = redis_sync.Redis(host=host, port=port, db=0, decode_responses=True)
+    pipe = r.pipeline(transaction=False)
+    batch_size = 5000
+    count = 0
+    for row in partition:
+        aid = row["aid"]
+        candidates = row["candidates"]
+        aid2_list = [str(c["aid2"]) for c in candidates]
+        if aid2_list:
+            key = f"covis:{aid}"
+            pipe.delete(key)
+            pipe.rpush(key, *aid2_list)
+            count += 1
+        if count % batch_size == 0:
+            pipe.execute()
+    pipe.execute()
+
+
+def _matrix_exists() -> bool:
+    """Kiểm tra file parquet matrix đã tồn tại chưa."""
+    return (OUTPUT_PATH / "_SUCCESS").exists()
+
+
+def _redis_has_matrix() -> bool:
+    """Kiểm tra Redis đã có covis:* keys chưa."""
+    host = os.getenv("REDIS_HOST", "localhost")
+    port = int(os.getenv("REDIS_PORT", "6379"))
+    try:
+        r = redis_sync.Redis(host=host, port=port, db=0, decode_responses=True)
+        keys = r.scan(cursor=0, match="covis:*", count=1)[1]
+        return len(keys) > 0
+    except Exception:
+        return False
+
+
+def _load_matrix_to_redis(spark_service: SparkService) -> None:
+    """Load matrix từ parquet vào Redis."""
+    import socket
+
+    spark = spark_service.spark_session
+    logger = spark_service.spark_logger
+    logger.info(f"Loading matrix from {OUTPUT_PATH} into Redis...")
+    df = spark.read.parquet(str(OUTPUT_PATH))
+    logger.info(f"Total rows to load: {df.count()}")
+
+    # Pre-resolve Redis host to IP — Spark worker processes (forked) may not
+    # resolve Docker DNS names reliably on Alpine.  Setting REDIS_IP in the
+    # environment lets _send_partition_to_redis bypass DNS.
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    try:
+        os.environ["REDIS_IP"] = socket.gethostbyname(redis_host)
+    except OSError:
+        os.environ["REDIS_IP"] = redis_host
+
+    df.coalesce(10).foreachPartition(_send_partition_to_redis)
+    logger.info("Matrix loaded into Redis successfully!")
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Build and/or load co-visitation matrix")
+    parser.add_argument("--load-redis", action="store_true", help="Load matrix vào Redis sau khi build")
+    parser.add_argument("--skip-build", action="store_true", help="Bỏ qua build, chỉ load Redis")
+    args = parser.parse_args()
+
     spark_service = SparkService()
-    build_covisit_unified(spark_service)
+
+    # Build matrix (nếu cần)
+    if not args.skip_build:
+        if _matrix_exists():
+            print("[SKIP] Matrix file exists, skipping build")
+        else:
+            print("[BUILD] Building matrix from training data...")
+            build_covisit_unified(spark_service)
+            print("[BUILD] Done")
+    else:
+        if not _matrix_exists():
+            print("[ERROR] --skip-build but matrix file not found at", OUTPUT_PATH)
+            return
+
+    # Load vào Redis (nếu --load-redis)
+    if args.load_redis:
+        if _redis_has_matrix():
+            print("[SKIP] Matrix already in Redis, nothing to do")
+        else:
+            print("[LOAD] Loading matrix into Redis...")
+            _load_matrix_to_redis(spark_service)
+            print("[LOAD] Done")
+
+    spark_service.spark_session.stop()
+    print("[DONE] All tasks complete")
 
 
 if __name__ == "__main__":

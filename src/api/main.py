@@ -29,13 +29,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from src.core.constant import COVISITATION_MATRIX_FILEPATH
 from src.api.cold_start import ColdStartRecommender
 from src.api.db import Database
 from src.api.session_manager import SessionManager
 from src.core.infra.kafka_queue import KafkaMessage
 from src.evaluation.metrics import mrr_at_k, ndcg_at_k, recall_at_k
-from src.serving.covisitation_recommender import CovisitationRecommender
 from src.serving.sasrec_recommender import SASRecRecommender
 
 
@@ -66,7 +64,6 @@ logger = logging.getLogger(__name__)
 session_mgr: Optional[SessionManager] = None
 db: Optional[Database] = None
 cold_start: Optional[ColdStartRecommender] = None
-covisitation: Optional[CovisitationRecommender] = None
 sasrec: Optional[SASRecRecommender] = None
 kafka_producer = None
 background_queue: Optional[asyncio.Queue] = None
@@ -164,7 +161,7 @@ async def flush_db_buffers_task():
 
             # Flush collected_events
             while True:
-                batch = session_mgr.redis.lpop(REDIS_EVENT_BUFFER, BATCH_SIZE)
+                batch = await session_mgr.redis.lpop(REDIS_EVENT_BUFFER, BATCH_SIZE)
                 if not batch:
                     break
                 if isinstance(batch, str):
@@ -186,7 +183,7 @@ async def flush_db_buffers_task():
 
             # Flush predictions_log
             while True:
-                batch =  session_mgr.redis.lpop(REDIS_PREDICTION_BUFFER, BATCH_SIZE)
+                batch = await session_mgr.redis.lpop(REDIS_PREDICTION_BUFFER, BATCH_SIZE)
                 if not batch:
                     break
                 if isinstance(batch, str):
@@ -213,7 +210,7 @@ async def flush_db_buffers_task():
 
             # Flush online_hits
             while True:
-                batch = session_mgr.redis.lpop("buffer:online_hits", BATCH_SIZE)
+                batch = await session_mgr.redis.lpop("buffer:online_hits", BATCH_SIZE)
                 if not batch:
                     break
                 if isinstance(batch, str):
@@ -240,7 +237,7 @@ async def flush_db_buffers_task():
 
             # Flush online_metrics (5.1)
             while True:
-                batch = session_mgr.redis.lpop("buffer:online_metrics", BATCH_SIZE)
+                batch = await session_mgr.redis.lpop("buffer:online_metrics", BATCH_SIZE)
                 if not batch:
                     break
                 if isinstance(batch, str):
@@ -331,7 +328,6 @@ async def lifespan(app: FastAPI):
         session_mgr, \
         db, \
         cold_start, \
-        covisitation, \
         sasrec, \
         kafka_producer, \
         kafka_queue, \
@@ -343,26 +339,39 @@ async def lifespan(app: FastAPI):
     redis_port = int(os.getenv("REDIS_PORT", "6379"))
     session_mgr = SessionManager(host=redis_host, port=redis_port)
 
-    logger.info("đang chưa load gì")
-    # kiểm tra xem load covisitation matrix vào chưa
+    # Kiểm tra covisitation matrix đã được load vào Redis chưa
     try:
         keys = (await session_mgr.redis.scan(cursor=0, match="covis:*", count=1))[1]
         if not keys:
-            session_mgr.load_covisitation_matrix(COVISITATION_MATRIX_FILEPATH)
+            logger.warning(
+                "No covisitation matrix in Redis! "
+                "Run 'docker compose --profile setup run --rm setup-matrix' first"
+            )
         else:
-            logger.info("có covis key, có matrix rồi")
+            logger.info("Covisitation matrix found in Redis")
     except Exception as e:
-        logger.warning(f"Lỗi khi kiểm tra matrix trong redis: {e}")
-    logger.info("đã load hoặc kiểm tra xong")
+        logger.warning(f"Cannot check covisitation matrix in Redis: {e}")
 
-    # pg_host = os.getenv("POSTGRES_HOST", "localhost")
-    # pg_port = int(os.getenv("POSTGRES_PORT", "5432"))
-    # pg_user = os.getenv("POSTGRES_USER", "otto")
-    # pg_pass = os.getenv("POSTGRES_PASSWORD", "otto123")
-    # pg_db = os.getenv("POSTGRES_DB", "otto_recommender")
-    # db = Database(
-    #     host=pg_host, port=pg_port, dbname=pg_db, user=pg_user, password=pg_pass
-    # )
+    db = None
+    pg_enabled = os.getenv("POSTGRES_ENABLED", "true").lower() != "false"
+    if pg_enabled:
+        pg_host = os.getenv("POSTGRES_HOST", "localhost")
+        pg_port = int(os.getenv("POSTGRES_PORT", "5432"))
+        pg_user = os.getenv("POSTGRES_USER", "otto")
+        pg_pass = os.getenv("POSTGRES_PASSWORD", "otto123")
+        pg_db = os.getenv("POSTGRES_DB", "otto_recommender")
+        try:
+            _db = Database(
+                host=pg_host, port=pg_port, dbname=pg_db, user=pg_user, password=pg_pass
+            )
+            _db._get_conn()
+            db = _db
+            logger.info("PostgreSQL connected")
+        except Exception as e:
+            logger.warning(f"PostgreSQL unavailable, running without DB: {e}")
+            db = None
+    else:
+        logger.info("PostgreSQL disabled via POSTGRES_ENABLED=false")
 
     remote_url = os.getenv(
         "SASREC_REMOTE_URL", "https://rs-model1.vucongtuanduong.dpdns.org/"
@@ -374,41 +383,43 @@ async def lifespan(app: FastAPI):
     sasrec = SASRecRecommender(remote_url=remote_url)
     logger.info(f"SASRec initialized in FORCED REMOTE mode ({remote_url})")
 
-    # kafka_producer = None
-    # kafka_queue = None
-    # kafka_init_task = None
+    cold_start = ColdStartRecommender(db=db)
 
-    # async def _init_kafka_background():
-    #     global kafka_producer, kafka_queue
-    #     from src.core.infra.kafka import KafkaProducerService
-    #     from src.core.infra.kafka_queue import KafkaQueue
+    kafka_producer = None
+    kafka_queue = None
+    kafka_init_task = None
 
-    #     attempt = 0
-    #     while True:
-    #         try:
-    #             attempt += 1
-    #             p = KafkaProducerService()
-    #             await p.start()
-    #             q = KafkaQueue(p, maxsize=5000)
-    #             await q.start()
-    #             kafka_producer = p
-    #             kafka_queue = q
-    #             logger.info(
-    #                 "Kafka producer + queue connected (after %d attempts)", attempt
-    #             )
-    #             return
-    #         except Exception as e:
-    #             logger.warning("Kafka not available yet (attempt %d): %s", attempt, e)
-    #             await asyncio.sleep(5)
+    async def _init_kafka_background():
+        global kafka_producer, kafka_queue
+        from src.core.infra.kafka import KafkaProducerService
+        from src.core.infra.kafka_queue import KafkaQueue
 
-    # kafka_init_task = asyncio.create_task(_init_kafka_background())
+        attempt = 0
+        while True:
+            try:
+                attempt += 1
+                p = KafkaProducerService()
+                await p.start()
+                q = KafkaQueue(p, maxsize=5000)
+                await q.start()
+                kafka_producer = p
+                kafka_queue = q
+                logger.info(
+                    "Kafka producer + queue connected (after %d attempts)", attempt
+                )
+                return
+            except Exception as e:
+                logger.warning("Kafka not available yet (attempt %d): %s", attempt, e)
+                await asyncio.sleep(5)
+
+    kafka_init_task = asyncio.create_task(_init_kafka_background())
 
     background_queue = asyncio.Queue(maxsize=1000)
     worker_task = asyncio.create_task(background_recompute_worker())
 
-    # asyncio.create_task(flush_db_buffers_task())
-    # asyncio.create_task(refresh_ranks_task())
-    # logger.info("Background tasks started (DB buffer flush, rank refresh, background recompute)")
+    asyncio.create_task(flush_db_buffers_task())
+    asyncio.create_task(refresh_ranks_task())
+    logger.info("Background tasks started (DB buffer flush, rank refresh, background recompute)")
 
     yield
 
@@ -418,18 +429,18 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
-    # if kafka_init_task and not kafka_init_task.done():
-    #     kafka_init_task.cancel()
-    #     try:
-    #         await kafka_init_task
-    #     except asyncio.CancelledError:
-    #         pass
-    # if kafka_queue:
-    #     await kafka_queue.stop()
-    # if kafka_producer:
-    #     await kafka_producer.stop()
-    # if db:
-    #     db.close()
+    if kafka_init_task and not kafka_init_task.done():
+        kafka_init_task.cancel()
+        try:
+            await kafka_init_task
+        except asyncio.CancelledError:
+            pass
+    if kafka_queue:
+        await kafka_queue.stop()
+    if kafka_producer:
+        await kafka_producer.stop()
+    if db:
+        db.close()
     await sasrec.aclose()
 
     logger.info("OTTO API Server shut down")
@@ -499,104 +510,104 @@ async def receive_event(event: EventRequest, request: Request):
         except asyncio.QueueFull:
             logger.warning(f"[{corr_id}] Background recompute queue full, skipping task enqueue")
 
-    # # 3. Publish to Kafka via queue (non-blocking, fire-and-forget)
-    # if kafka_queue:
-    #     kafka_queue.put_nowait(
-    #         KafkaMessage(
-    #             topic="user-events",
-    #             message={
-    #                 "session_id": event.session_id,
-    #                 "aid": event.aid,
-    #                 "type": event.type,
-    #                 "ts": ts,
-    #                 "model_used": model_used,
-    #             },
-    #             key=str(event.session_id),
-    #         )
-    #     )
-    # else:
-    #     logger.warning(f"[{corr_id}] kafka_queue is None, skipping Kafka publish")
+    # 3. Publish to Kafka via queue (non-blocking, fire-and-forget)
+    if kafka_queue:
+        kafka_queue.put_nowait(
+            KafkaMessage(
+                topic="user-events",
+                message={
+                    "session_id": event.session_id,
+                    "aid": event.aid,
+                    "type": event.type,
+                    "ts": ts,
+                    "model_used": model_used,
+                },
+                key=str(event.session_id),
+            )
+        )
+    else:
+        logger.warning(f"[{corr_id}] kafka_queue is None, skipping Kafka publish")
 
-    # # 4. Buffer event to Redis (Phase 2.3 batch writes + 6.1 TTL protection)
-    # event_data = json.dumps(
-    #     {"session_id": event.session_id, "aid": event.aid, "type": event.type, "ts": ts}
-    # )
-    # session_mgr.redis.rpush(REDIS_EVENT_BUFFER, event_data)
-    # session_mgr.redis.ltrim(
-    #     REDIS_EVENT_BUFFER, -MAX_BUFFER_SIZE, -1
-    # )  # Phase 6.1: Max length
-    # session_mgr.redis.expire(REDIS_EVENT_BUFFER, BUFFER_TTL_SECONDS)  # Phase 6.1: TTL
+    # 4. Buffer event to Redis (Phase 2.3 batch writes + 6.1 TTL protection)
+    event_data = json.dumps(
+        {"session_id": event.session_id, "aid": event.aid, "type": event.type, "ts": ts}
+    )
+    await session_mgr.redis.rpush(REDIS_EVENT_BUFFER, event_data)
+    await session_mgr.redis.ltrim(
+        REDIS_EVENT_BUFFER, -MAX_BUFFER_SIZE, -1
+    )  # Phase 6.1: Max length
+    await session_mgr.redis.expire(REDIS_EVENT_BUFFER, BUFFER_TTL_SECONDS)  # Phase 6.1: TTL
 
     latency_ms = (time.time() - start_time) * 1000
 
     # 5. Buffer prediction to Redis (Phase 2.3 batch writes)
-    # pred_data = json.dumps(
-    #     {
-    #         "session_id": event.session_id,
-    #         "model_used": model_used,
-    #         "session_length": session_length,
-    #         "predicted_clicks": recommendations.get("clicks", []),
-    #         "predicted_carts": recommendations.get("carts", []),
-    #         "predicted_orders": recommendations.get("orders", []),
-    #         "latency_ms": latency_ms,
-    #     }
-    # )
-    # session_mgr.redis.rpush(REDIS_PREDICTION_BUFFER, pred_data)
-    # session_mgr.redis.ltrim(
-    #     REDIS_PREDICTION_BUFFER, -MAX_BUFFER_SIZE, -1
-    # )  # Phase 6.1: Max length
-    # session_mgr.redis.expire(
-    #     REDIS_PREDICTION_BUFFER, BUFFER_TTL_SECONDS
-    # )  # Phase 6.1: TTL
+    pred_data = json.dumps(
+        {
+            "session_id": event.session_id,
+            "model_used": model_used,
+            "session_length": session_length,
+            "predicted_clicks": recommendations.get("clicks", []),
+            "predicted_carts": recommendations.get("carts", []),
+            "predicted_orders": recommendations.get("orders", []),
+            "latency_ms": latency_ms,
+        }
+    )
+    await session_mgr.redis.rpush(REDIS_PREDICTION_BUFFER, pred_data)
+    await session_mgr.redis.ltrim(
+        REDIS_PREDICTION_BUFFER, -MAX_BUFFER_SIZE, -1
+    )  # Phase 6.1: Max length
+    await session_mgr.redis.expire(
+        REDIS_PREDICTION_BUFFER, BUFFER_TTL_SECONDS
+    )  # Phase 6.1: TTL
 
-    # # 6. Online hit tracking (buffer to Redis + 6.1 TTL protection)
-    # if event.type in ["carts", "orders"]:
-    #     all_recs = set(
-    #         recommendations.get("clicks", [])
-    #         + recommendations.get("carts", [])
-    #         + recommendations.get("orders", [])
-    #     )
-    #     is_hit = event.aid in all_recs
-    #     session_mgr.redis.rpush(
-    #         "buffer:online_hits",
-    #         json.dumps(
-    #             {
-    #                 "session_id": event.session_id,
-    #                 "aid": event.aid,
-    #                 "event_type": event.type,
-    #                 "is_hit": is_hit,
-    #             }
-    #         ),
-    #     )
-    #     session_mgr.redis.ltrim("buffer:online_hits", -MAX_BUFFER_SIZE, -1)
-    #     session_mgr.redis.expire("buffer:online_hits", BUFFER_TTL_SECONDS)
+    # 6. Online hit tracking (buffer to Redis + 6.1 TTL protection)
+    if event.type in ["carts", "orders"]:
+        all_recs = set(
+            recommendations.get("clicks", [])
+            + recommendations.get("carts", [])
+            + recommendations.get("orders", [])
+        )
+        is_hit = event.aid in all_recs
+        await session_mgr.redis.rpush(
+            "buffer:online_hits",
+            json.dumps(
+                {
+                    "session_id": event.session_id,
+                    "aid": event.aid,
+                    "event_type": event.type,
+                    "is_hit": is_hit,
+                }
+            ),
+        )
+        await session_mgr.redis.ltrim("buffer:online_hits", -MAX_BUFFER_SIZE, -1)
+        await session_mgr.redis.expire("buffer:online_hits", BUFFER_TTL_SECONDS)
 
-    #     # 5.1: Calculate and log Recall@K, NDCG@K, MRR@K
-    #     ground_truth = [event.aid]
-    #     all_recs_list = (
-    #         recommendations.get("clicks", [])
-    #         + recommendations.get("carts", [])
-    #         + recommendations.get("orders", [])
-    #     )
-    #     eval_metrics = {
-    #         "recall@20": recall_at_k(all_recs_list, ground_truth, k=20),
-    #         "ndcg@20": ndcg_at_k(all_recs_list, ground_truth, k=20),
-    #         "mrr@20": mrr_at_k(all_recs_list, ground_truth, k=20),
-    #         "hit_rate": 1.0 if is_hit else 0.0,
-    #     }
-    #     session_mgr.redis.rpush(
-    #         "buffer:online_metrics",
-    #         json.dumps(
-    #             {
-    #                 "session_id": event.session_id,
-    #                 "model_used": model_used,
-    #                 "event_type": event.type,
-    #                 "metrics": eval_metrics,
-    #             }
-    #         ),
-    #     )
-    #     session_mgr.redis.ltrim("buffer:online_metrics", -MAX_BUFFER_SIZE, -1)
-    #     session_mgr.redis.expire("buffer:online_metrics", BUFFER_TTL_SECONDS)
+        # 5.1: Calculate and log Recall@K, NDCG@K, MRR@K
+        ground_truth = [event.aid]
+        all_recs_list = (
+            recommendations.get("clicks", [])
+            + recommendations.get("carts", [])
+            + recommendations.get("orders", [])
+        )
+        eval_metrics = {
+            "recall@20": recall_at_k(all_recs_list, ground_truth, k=20),
+            "ndcg@20": ndcg_at_k(all_recs_list, ground_truth, k=20),
+            "mrr@20": mrr_at_k(all_recs_list, ground_truth, k=20),
+            "hit_rate": 1.0 if is_hit else 0.0,
+        }
+        await session_mgr.redis.rpush(
+            "buffer:online_metrics",
+            json.dumps(
+                {
+                    "session_id": event.session_id,
+                    "model_used": model_used,
+                    "event_type": event.type,
+                    "metrics": eval_metrics,
+                }
+            ),
+        )
+        await session_mgr.redis.ltrim("buffer:online_metrics", -MAX_BUFFER_SIZE, -1)
+        await session_mgr.redis.expire("buffer:online_metrics", BUFFER_TTL_SECONDS)
 
     logger.info(f"[{corr_id}] Response: model={model_used} latency={latency_ms:.1f}ms")
 
@@ -611,13 +622,13 @@ async def receive_event(event: EventRequest, request: Request):
 
 @app.get("/api/session/{session_id}", response_model=SessionResponse)
 async def get_session(session_id: int):
-    events = session_mgr.get_session(session_id)
+    events = await session_mgr.get_session(session_id)
     return SessionResponse(session_id=session_id, events=events, length=len(events))
 
 
 @app.get("/api/recommend/{session_id}")
 async def get_recommendations(session_id: int, top_k: int = 20):
-    session_aids = session_mgr.get_session_aids(session_id)
+    session_aids = await session_mgr.get_session_aids(session_id)
     session_length = len(session_aids)
 
     if session_length == 0:
@@ -625,14 +636,14 @@ async def get_recommendations(session_id: int, top_k: int = 20):
         recommendations = cold_start.recommend_empty_session(top_k)
     elif session_length < 5:
         model_used = "covisitation_redis"
-        recommendations = session_mgr.get_covisitation_recommendations(session_aids, top_k)
+        recommendations = await session_mgr.get_covisitation_recommendations(session_aids, top_k)
     else:
         model_used = "sasrec_deep_learning"
         try:
-            recommendations = call_sasrec_with_fallback(session_aids, top_k)
+            recommendations = await call_sasrec_with_fallback(session_aids, top_k)
         except Exception:
             model_used = "sasrec_fallback_covisitation"
-            recommendations = session_mgr.get_covisitation_recommendations(session_aids, top_k)
+            recommendations = await session_mgr.get_covisitation_recommendations(session_aids, top_k)
 
     return {
         "session_id": session_id,
@@ -645,7 +656,7 @@ async def get_recommendations(session_id: int, top_k: int = 20):
 @app.get("/api/stats")
 async def get_stats():
     return {
-        "active_sessions": session_mgr.get_active_session_count() if session_mgr else 0,
+        "active_sessions": await session_mgr.get_active_session_count() if session_mgr else 0,
         "prediction_stats": db.get_prediction_stats() if db else {},
         "model_usage": db.get_model_usage() if db else [],
         "collected_events": db.get_collected_events_count() if db else 0,
@@ -678,12 +689,14 @@ async def health_check():
     redis_status = "ok"
     redis_info = {}
     try:
-        r = await session_mgr.redis
+        r = session_mgr.redis
         await r.ping()
+        info_memory = await r.info("memory")
+        info_clients = await r.info("clients")
         redis_info = {
             "status": "ok",
-            "memory_mb": await r.info("memory")["used_memory_human"],
-            "connected_clients": await r.info("clients")["connected_clients"],
+            "memory_mb": info_memory.get("used_memory_human", "N/A"),
+            "connected_clients": info_clients.get("connected_clients", 0),
             "db_keys": await r.dbsize(),
         }
     except Exception as e:
@@ -694,31 +707,31 @@ async def health_check():
     # PostgreSQL health
     pg_status = "ok"
     pg_info = {}
-    # try:
-    #     with db.cursor() as cur:
-    #         cur.execute("SELECT 1")
-    #         cur.execute("SELECT COUNT(*) FROM pg_stat_activity")
-    #         row = cur.fetchone()
-    #         conn_count = row["count"] if row else 0
-    #     pg_info = {"status": "ok", "active_connections": conn_count}
-    #     logger.debug(f"Postgres health OK: {conn_count} connections")
-    # except Exception as e:
-    #     logger.error(f"Postgres health check failed: {e}")
-    #     pg_status = f"error: {e}"
-    #     pg_info = {"status": "error", "error": str(e)}
+    try:
+        with db.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.execute("SELECT COUNT(*) FROM pg_stat_activity")
+            row = cur.fetchone()
+            conn_count = row["count"] if row else 0
+        pg_info = {"status": "ok", "active_connections": conn_count}
+        logger.debug(f"Postgres health OK: {conn_count} connections")
+    except Exception as e:
+        logger.error(f"Postgres health check failed: {e}")
+        pg_status = f"error: {e}"
+        pg_info = {"status": "error", "error": str(e)}
     pg_info = {"status": "ok"}  # tạm ok 
-    # # Kafka health
+    # Kafka health
     kafka_status = "ok"
-    # kafka_info = {}
-    # try:
-    #     if kafka_producer and kafka_producer._producer:
-    #         kafka_info = {"status": "ok", "producer_ready": True}
-    #     else:
-    #         kafka_status = "not_configured"
-    #         kafka_info = {"status": "not_configured"}
-    # except Exception as e:
-    #     kafka_status = f"error: {e}"
-    #     kafka_info = {"status": "error", "error": str(e)}
+    kafka_info = {}
+    try:
+        if kafka_producer and kafka_producer._producer:
+            kafka_info = {"status": "ok", "producer_ready": True}
+        else:
+            kafka_status = "not_configured"
+            kafka_info = {"status": "not_configured"}
+    except Exception as e:
+        kafka_status = f"error: {e}"
+        kafka_info = {"status": "error", "error": str(e)}
 
     kafka_info = {"status": "ok"}  # tạm ok 
 

@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 from collections import Counter
 import redis as redis_sync
 import redis.asyncio as redis
-from src.core import SparkService
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +28,10 @@ class SessionManager:
     def load_covisitation_matrix(self, parquet_path: str) -> None:
         """
         Loads the co-visitation matrix from Parquet file to Redis using Spark.
-        Matches the loading logic in test_load_covisited_matrix_to_redis.py.
+        Matches the loading logic in build_covisited_matrix.py._send_partition_to_redis.
         """
+        from src.core import SparkService
+
         logger.info(f"Loading co-visitation matrix from {parquet_path} into Redis using Spark...")
 
         spark_service = SparkService()
@@ -197,7 +198,7 @@ class SessionManager:
         cursor = 0
         count = 0
         while True:
-            cursor, keys = await self.redis.scan(cursor, match="session:*", count=100)
+            cursor, keys = await self.redis.scan(cursor, match="session:*", count=100000)
             count += len(keys)
             if cursor == 0:
                 break
