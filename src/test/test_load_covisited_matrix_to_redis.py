@@ -3,13 +3,13 @@
 # xóa dữ liệu trong redis-cli:    FLUSHDB
 # Xem value của key:              LRANGE <tên key> 0 -1 
 
-# duyệt in ra toàn bộ 1,8M keys mất tầm 12s, truy vấn ra 1 value của key thì enter cái ra luôn. 
+# truy vấn ra 1 value của key thì enter cái ra luôn. 
 # Ram lưu trữ 1.8M chiếm tầm 0.8GB 
 
 import os
 from dotenv import load_dotenv
 import redis
-from src.core.constant import DATASETS_DIR
+from src.core.constant import COVISITATION_MATRIX_FILEPATH
 from src.core import SparkService
 
 load_dotenv()
@@ -17,7 +17,7 @@ load_dotenv()
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
-covisited_path = DATASETS_DIR / "co_visited_unified.parquet"
+# covisited_path = DATASETS_DIR / "co_visited_unified.parquet"
 
 
 def send_partition_to_redis(partition):
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     spark = spark_service.spark_session
     
     # Đọc dữ liệu
-    df = spark.read.parquet(str(covisited_path))
+    df = spark.read.parquet(str(COVISITATION_MATRIX_FILEPATH))
     print(f"Tổng số dòng: {df.count()}")
     print("Spark đang xử lý song song và ghi dữ liệu xuống Redis...")
 
