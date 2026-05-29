@@ -1,0 +1,55 @@
+{
+  "rows": 5,
+  "data": [
+    {
+      "id": 1,
+      "query_id": "fc71ad0f-461a-445e-b067-ddefccc46d70",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 0,
+      "input_rows_per_second": 0.0,
+      "process_rows_per_second": 0.0,
+      "batch_duration_ms": 3159,
+      "timestamp": "2026-05-22 07:29:14.152417"
+    },
+    {
+      "id": 2,
+      "query_id": "fc71ad0f-461a-445e-b067-ddefccc46d70",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 1,
+      "input_rows_per_second": 761.9047619047618,
+      "process_rows_per_second": 0.37514654161781946,
+      "batch_duration_ms": 42650,
+      "timestamp": "2026-05-22 07:56:49.870594"
+    },
+    {
+      "id": 3,
+      "query_id": "fc71ad0f-461a-445e-b067-ddefccc46d70",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 2,
+      "input_rows_per_second": 4688.868570356824,
+      "process_rows_per_second": 3697.2492328169483,
+      "batch_duration_ms": 54094,
+      "timestamp": "2026-05-22 07:57:44.111685"
+    },
+    {
+      "id": 4,
+      "query_id": "fc71ad0f-461a-445e-b067-ddefccc46d70",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 3,
+      "input_rows_per_second": 14.713493530499075,
+      "process_rows_per_second": 14.449870205311598,
+      "batch_duration_ms": 55087,
+      "timestamp": "2026-05-22 07:58:39.132368"
+    },
+    {
+      "id": 5,
+      "query_id": "fc71ad0f-461a-445e-b067-ddefccc46d70",
+      "query_name": "Unified-OTTO-Streaming-Query",
+      "batch_id": 4,
+      "input_rows_per_second": 15.30251048303654,
+      "process_rows_per_second": 18.717943024624198,
+      "batch_duration_ms": 45037,
+      "timestamp": "2026-05-22 07:59:24.178362"
+    }
+  ]
+}

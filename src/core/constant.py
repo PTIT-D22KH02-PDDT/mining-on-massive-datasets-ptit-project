@@ -16,8 +16,8 @@ CONFIG_FILE_NAME = "config.yml"
 #DATASET #
 ##########
 DATASETS_DIR = ROOT_DIR / "datasets"
-DATASETS_FILEPATH = DATASETS_DIR / "data.parquet"
-
+DATASETS_FILEPATH = DATASETS_DIR / "train_parquet"
+COVISITATION_MATRIX_FILEPATH = DATASETS_DIR / "co_visited_unified.parquet"
 ##########
 # EDA    #
 ##########
@@ -57,7 +57,7 @@ CLICKS_MATRIX_PARQUET_FILE = DATASETS_DIR / "clicks_matrix.parquet"
 
 # OTHER CONSTANT
 TAIL_SIZE = 30
-ONE_DAY_IN_MS = 60 * 60 * 24
-FOURTEEN_DAY_IN_MS = 60 * 60 * 24 * 14
+ONE_DAY_IN_SECONDS = 60 * 60 * 24
+FOURTEEN_DAYS_IN_SECONDS = 60 * 60 * 24 * 14
 WEIGHT_INTERMEDIATE_COLUMN = "weight"
 

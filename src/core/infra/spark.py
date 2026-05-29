@@ -5,6 +5,7 @@ Reads spark settings from the global config (config/config.yml).
 """
 
 import logging
+import os
 from typing import Tuple
 
 from pyspark.sql import SparkSession
@@ -32,20 +33,17 @@ class SparkService:
         self.spark_session.stop()
 
 
-def _start_spark(app_name: str | None = None) -> Tuple[SparkSession, spark_logging.Log4j]:
+def _start_spark(
+    app_name: str | None = None,
+) -> Tuple[SparkSession, spark_logging.Log4j]:
     """
     Start Spark session using settings from config/config.yml.
     """
     sc = _spark_cfg()
-    master = sc.get("master", "local[*]")
+    master = os.getenv("SPARK_MASTER_URL") or sc.get("master", "local[*]")
     name = app_name or sc.get("app_name", "pyspark-app")
 
-    builder = (
-        SparkSession
-        .builder
-        .master(master)
-        .appName(name)
-    )
+    builder = SparkSession.builder.master(master).appName(name)
 
     # Apply any extra spark config from the YAML
     for key, value in sc.get("config", {}).items():
@@ -54,5 +52,5 @@ def _start_spark(app_name: str | None = None) -> Tuple[SparkSession, spark_loggi
     spark_sess = builder.getOrCreate()
     spark_logger = spark_logging.Log4j(spark_sess)
 
-    logger.info(f"SparkSession started → master={master}  app={name}")
+    logger.info(f"SparkSession started - master={master}  app={name}")
     return spark_sess, spark_logger

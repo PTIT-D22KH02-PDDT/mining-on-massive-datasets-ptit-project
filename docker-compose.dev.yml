@@ -1,0 +1,82 @@
+include:
+  - docker-compose.yml
+
+services:
+  api:
+    image: ${DOCKER_USERNAME:-otto}/otto-api:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    volumes:
+      - ./src:/opt/app/src:ro
+      - ./config:/opt/app/config:ro
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=otto_recommender
+      - POSTGRES_USER=otto
+      - POSTGRES_PASSWORD=otto123
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
+
+  dashboard:
+    image: ${DOCKER_USERNAME:-otto}/otto-dashboard:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    volumes:
+      - ./src:/opt/app/src:ro
+      - ./config:/opt/app/config:ro
+      - ./streamlit_app.py:/opt/app/streamlit_app.py:ro
+    environment:
+      - API_URL=http://api:8000
+
+  spark-streaming:
+    image: ${DOCKER_USERNAME:-otto}/otto-spark-streaming:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.streaming
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    volumes:
+      - ./src:/opt/app/src:ro
+      - ./config:/opt/app/config:ro
+      - ./spark-checkpoints:/tmp/spark-checkpoints
+      - ./datasets:/opt/app/datasets
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=otto_recommender
+      - POSTGRES_USER=otto
+      - POSTGRES_PASSWORD=otto123
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_MASTER_URL=${SPARK_MASTER_URL:-spark://spark-master:7077}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-3g}
+      - SPARK_MAX_OFFSETS_PER_TRIGGER=${SPARK_MAX_OFFSETS_PER_TRIGGER:-10000}
+      - PYSPARK_PYTHON=/usr/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+
+  setup-jobs:
+    image: ${DOCKER_USERNAME:-otto}/otto-setup:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.setup
+    volumes:
+      - ./src:/opt/app/src:ro
+      - ./config:/opt/app/config:ro
+      - ./datasets:/opt/app/datasets
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=otto_recommender
+      - POSTGRES_USER=otto
+      - POSTGRES_PASSWORD=otto123
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_MASTER_URL=${SPARK_MASTER_URL:-spark://spark-master:7077}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-3g}
+      - PYSPARK_PYTHON=/usr/bin/python3

@@ -16,10 +16,10 @@ kafka:
 
   # Producer settings
   producer:
-    acks: "all"                 # "all", "1", or "0"
-    retries: 3
-    linger_ms: 10               # batch window in ms
-    enable_idempotence: true
+    acks: 1                     # 0, 1, or "all" (1 = leader ack, giảm latency)
+    linger_ms: 10               # batch window in ms, gom message trước khi gửi
+    enable_idempotence: false   # không cần idempotence với acks=1
+    request_timeout_ms: 5000    # timeout tối đa chờ Kafka ack
 
   # Consumer settings
   consumer:
@@ -48,13 +48,21 @@ kafka:
 # Spark Configuration
 # -----------------------------------------------------------------------------
 spark:
-  master: "${SPARK_MASTER:local[*]}"
+  master: "${SPARK_MASTER_URL:local[*]}"
   app_name: "mining-on-massive-datasets"
   config:
-    spark.driver.memory: "4g"
-    spark.executor.memory: "6g"
-    spark.sql.shuffle.partitions: "60"
-    spark.driver.maxResultSize: "2g"
-    spark.memory.fraction: "0.8"
+    spark.driver.memory: "2g"
+    spark.executor.memory: "3g"
+    spark.executor.cores: "2"
+    spark.cores.max: "4"
+    spark.sql.shuffle.partitions: "8"
+    spark.driver.maxResultSize: "1g"
+    spark.memory.fraction: "0.6"
     spark.memory.storageFraction: "0.1"
     spark.local.dir: "/tmp/spark-temp"
+    spark.sql.streaming.checkpointLocation: "/tmp/spark-checkpoints"
+    spark.sql.session.timeZone: "UTC"
+    spark.datasource.jdbc.batchSize: "500"
+    spark.network.timeout: "600s"
+    spark.executor.heartbeatInterval: "30s"
+#    spark.local.dir: "/mnt/d/spark-temp"     #sửa đường dẫn lưu dữ liệu tạm thời trong quá trình tính toán của spark nếu ram đầy

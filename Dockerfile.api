@@ -1,0 +1,16 @@
+FROM python:3.12-slim
+
+WORKDIR /opt/app
+
+RUN pip install --no-cache-dir uv
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --extra api
+
+COPY src/ src/
+COPY config/ config/
+
+ENV PYSPARK_PYTHON=python3
+ENV PATH="/opt/app/.venv/bin:$PATH"
+
+CMD ["python3", "src/api/main.py"]

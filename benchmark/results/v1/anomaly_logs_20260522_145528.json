@@ -1,0 +1,149 @@
+{
+  "rows": 12,
+  "data": [
+    {
+      "id": 1,
+      "session_id": 100290,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.39,
+        "batch_mean": 1.17,
+        "z_threshold": 2.33,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:04.361980"
+    },
+    {
+      "id": 2,
+      "session_id": 100141,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.39,
+        "batch_mean": 1.17,
+        "z_threshold": 2.33,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:04.361980"
+    },
+    {
+      "id": 3,
+      "session_id": 100775,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.39,
+        "batch_mean": 1.17,
+        "z_threshold": 2.33,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:04.361980"
+    },
+    {
+      "id": 4,
+      "session_id": 101095,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.39,
+        "batch_mean": 1.17,
+        "z_threshold": 2.33,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:04.361980"
+    },
+    {
+      "id": 5,
+      "session_id": 101437,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.35,
+        "batch_mean": 1.11,
+        "z_threshold": 2.15,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:52.841857"
+    },
+    {
+      "id": 6,
+      "session_id": 101999,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.35,
+        "batch_mean": 1.11,
+        "z_threshold": 2.15,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:52.841857"
+    },
+    {
+      "id": 7,
+      "session_id": 101981,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.35,
+        "batch_mean": 1.11,
+        "z_threshold": 2.15,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:52.841857"
+    },
+    {
+      "id": 8,
+      "session_id": 101101,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.35,
+        "batch_mean": 1.11,
+        "z_threshold": 2.15,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:52.841857"
+    },
+    {
+      "id": 9,
+      "session_id": 100295,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.35,
+        "batch_mean": 1.11,
+        "z_threshold": 2.15,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:52.841857"
+    },
+    {
+      "id": 10,
+      "session_id": 100866,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.35,
+        "batch_mean": 1.11,
+        "z_threshold": 2.15,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:52.841857"
+    },
+    {
+      "id": 11,
+      "session_id": 100613,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.35,
+        "batch_mean": 1.11,
+        "z_threshold": 2.15,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:52.841857"
+    },
+    {
+      "id": 12,
+      "session_id": 100519,
+      "anomaly_type": "BOT_TRAFFIC",
+      "details": {
+        "batch_std": 0.35,
+        "batch_mean": 1.11,
+        "z_threshold": 2.15,
+        "event_count_per_min": 3
+      },
+      "detected_at": "2026-05-22 07:58:52.841857"
+    }
+  ]
+}

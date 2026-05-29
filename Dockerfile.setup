@@ -1,0 +1,20 @@
+FROM python:3.12-alpine
+
+WORKDIR /opt/app
+
+RUN apk add --no-cache openjdk21-jre-headless bash gcompat && \
+    pip install --no-cache-dir uv
+
+COPY pyproject.toml uv.lock ./
+RUN apk add --no-cache --virtual .build-deps gcc musl-dev python3-dev zlib-dev && \
+    uv sync --frozen --extra setup && \
+    apk del .build-deps
+
+COPY src/ src/
+COPY config/ config/
+
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+ENV PYSPARK_PYTHON=python3
+ENV PATH="/opt/app/.venv/bin:$JAVA_HOME/bin:$PATH"
+
+CMD ["python3", "src/batch/funnel_analysis.py"]
