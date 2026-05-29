@@ -16,8 +16,8 @@ CONFIG_FILE_NAME = "config.yml"
 #DATASET #
 ##########
 DATASETS_DIR = ROOT_DIR / "datasets"
-DATASETS_FILEPATH = DATASETS_DIR / "data.parquet"
-
+DATASETS_FILEPATH = DATASETS_DIR / "train_parquet"
+COVISITATION_MATRIX_FILEPATH = DATASETS_DIR / "co_visited_unified.parquet"
 ##########
 # EDA    #
 ##########

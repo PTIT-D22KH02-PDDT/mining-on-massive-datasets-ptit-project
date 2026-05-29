@@ -65,3 +65,4 @@ spark:
     spark.datasource.jdbc.batchSize: "500"
     spark.network.timeout: "600s"
     spark.executor.heartbeatInterval: "30s"
+#    spark.local.dir: "/mnt/d/spark-temp"     #sửa đường dẫn lưu dữ liệu tạm thời trong quá trình tính toán của spark nếu ram đầy

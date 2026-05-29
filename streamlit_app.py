@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st_autorefresh(interval=5000, key="monitoring_refresh")
+st_autorefresh(interval=30000, key="monitoring_refresh")
 
 import os
 API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")

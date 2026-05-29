@@ -200,6 +200,29 @@ services:
     volumes:
       - ./datasets:/opt/app/datasets
     restart: "no"
+    profiles:
+      - setup
+
+  setup-matrix:
+    image: ${DOCKER_USERNAME:-otto}/otto-setup:${DOCKER_TAG:-latest}
+    container_name: otto-setup-matrix
+    command: python3 -m src.trainer.preprocess.build_covisited_matrix --load-redis
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - SPARK_MASTER_URL=local[*]
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=3g
+    volumes:
+      - ./datasets:/opt/app/datasets
+    networks:
+      - spark-net
+    restart: "no"
+    profiles:
+      - setup
 
   # === Application Services ===
 
@@ -280,8 +303,6 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      setup-jobs:
-        condition: service_completed_successfully
     environment:
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
