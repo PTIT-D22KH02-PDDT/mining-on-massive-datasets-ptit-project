@@ -171,6 +171,14 @@ class SessionManager:
         events = await self.get_session(session_id)
         return [e["aid"] for e in events]
 
+    async def get_session_sequences(self, session_id: int | str):
+        # lấy list toàn bộ các aid, type, ts của 1 session 
+        events = await self.get_session(session_id)
+        aids = [e["aid"] for e in events]
+        types = [e["type"] for e in events]
+        tss = [e["ts"] for e in events]
+        return aids, types, tss
+
     async def get_session_length(self, session_id: int | str) -> int:
         """Get the number of events in a session."""
         return await self.redis.llen(self._key(session_id))
