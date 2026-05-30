@@ -6,14 +6,23 @@ Chương này tổng kết toàn bộ quá trình nghiên cứu và xây dựng 
 
 \section{Kết luận}
 
-Đề tài đã thiết kế và triển khai thành công một hệ thống gợi ý thời gian thực đơn giản với mục đích để học tập gồm tám dịch vụ đóng gói trong các container, phục vụ bài toán gợi ý sản phẩm trên bộ dữ liệu OTTO. Hệ thống vận hành theo kiến trúc xử lý luồng hoàn chỉnh: API tiếp nhận tương tác người dùng, Kafka đóng vai trò trung gian chịu lỗi, Spark Streaming thực hiện sáu đường ống (pipeline) phân tích song song, và PostgreSQL lưu trữ kết quả phục vụ bảng điều khiển (dashboard) giám sát.
+Đề tài đã thiết kế và triển khai thành công một hệ thống gợi ý thời gian thực đơn giản với mục đích để học tập gồm mười một dịch vụ đóng gói trong các container, phục vụ bài toán gợi ý sản phẩm trên bộ dữ liệu OTTO. Hệ thống vận hành theo kiến trúc xử lý luồng hoàn chỉnh: API tiếp nhận tương tác người dùng, Redis quản lý phiên và bộ nhớ đệm kết quả gợi ý, Kafka đóng vai trò trung gian chịu lỗi, Spark Streaming thực hiện sáu đường ống phân tích song song, và PostgreSQL lưu trữ kết quả phục vụ bảng điều khiển giám sát.
 
-Kết quả kiểm thử tải (benchmark) cho thấy hệ thống hoạt động đúng chức năng với tỷ lệ lỗi API bằng 0\%. Tuy nhiên, hiệu năng tổng thể còn nhiều hạn chế do ba nút thắt chính. Thứ nhất, tài nguyên CPU giới hạn (bốn lõi) gây ra xung đột giữa Kafka và Spark, làm suy giảm thông lượng truyền tải sự kiện. Thứ hai, thời gian chờ gọi máy chủ mô hình (hai giây) tạo ra độ trễ đuôi lớn ở API gợi ý: độ trễ phân vị thứ 95 lên đến gần năm giây, gấp 18 lần so với trung vị. Thứ ba, dù Spark Streaming đã được tinh chỉnh với khoảng kích hoạt (trigger) 10 giây và giới hạn bản ghi mỗi lô, các đường ống (pipeline) phân tích vẫn chưa theo kịp tốc độ đầu vào do tài nguyên máy tính hạn chế, kéo độ trễ đầu cuối (từ lúc nhận sự kiện đến khi dữ liệu xuất hiện trong cơ sở dữ liệu) lên tới bảy phút ở phân vị thứ 95.
+Một điểm nhấn quan trọng của kiến trúc là cơ chế luồng đọc và luồng ghi tách biệt. Khi người dùng gửi tương tác, hệ thống luôn kiểm tra bộ nhớ đệm Redis trước và trả kết quả tức thì, không bao giờ phải chờ đợi mô hình từ xa. Chỉ các phiên đủ dài mới được đưa vào hàng đợi nền để tái tính toán bằng mô hình SASRec. Cách tiếp cận này giúp độ trễ P95 của API giảm đáng kể xuống còn 3791 ms so với 5322 ms ở lần đo trước, đồng thời loại bỏ hoàn toàn lỗi timeout (tỷ lệ lỗi giảm từ 0,76\% xuống 0,00\%). Hệ thống cũng triển khai cơ chế bộ ngắt mạch tự động chuyển sang dự phòng bằng covisitation khi mô hình gặp sự cố, đảm bảo người dùng luôn nhận được kết quả gợi ý bất kể trạng thái hệ thống.
+
+Kết quả kiểm thử tải cho thấy hệ thống hoạt động ổn định với nhiều cải thiện so với các lần đo trước. Thông lượng Kafka đạt 12.868 bản ghi/giây, cải thiện 4,2\%. Độ trễ P95 của API giảm 28,8\% xuống 3791 ms. Tốc độ xử lý Spark Streaming tăng 26\% lên 870 dòng/giây. Tuy nhiên, vẫn còn ba hạn chế chính cần giải quyết. Thứ nhất, tài nguyên CPU và bộ nhớ trong các container worker hạn chế khiến thời gian xử lý mỗi lô Spark Streaming vẫn ở mức 14,3 giây, vượt ngưỡng ổn định. Thứ hai, thông lượng Kafka vẫn rất xa mục tiêu do tranh chấp nhập/xuất giữa Kafka log và điểm phục hồi Spark trên cùng ổ đĩa. Thứ ba, độ trễ đầu cuối vẫn ở mức bốn phút do Spark xử lý chưa theo kịp tốc độ đầu vào.
 
 \section{Hướng phát triển}
 
-Kết quả kiểm thử tải đã chỉ ra những điểm yếu của hệ thống, từ đó mở ra một số hướng cải thiện rõ ràng.
-Về phía Spark Streaming, khoảng kích hoạt (trigger) và giới hạn số bản ghi mỗi lô đã được cài đặt, nhưng kết quả kiểm thử cho thấy các đường ống (pipeline) vẫn chưa đạt độ ổn định mong muốn. Hướng cải thiện tiếp theo là tối ưu hiệu suất xử lý của từng đường ống (pipeline), đặc biệt là các đường ống có trạng thái (stateful) như thống kê theo khoảng thời gian và độ phổ biến thời gian thực, nhằm giảm thời gian xử lý mỗi lô nhỏ.
+Kết quả kiểm thử đã chỉ ra những điểm yếu rõ ràng, từ đó mở ra các hướng cải thiện cụ thể.
 
-Về dài hạn, hệ thống có thể mở rộng theo nhiều hướng. Có thể thử nghiệm A/B để tìm ra hướng phù hợp và có thể triển khai CI/CD trên môi trường thực tế để tự động hóa.
+\subsection{Cải thiện hiệu suất Spark Streaming}
+Hướng ưu tiên hàng đầu là tăng tài nguyên CPU và bộ nhớ RAM cho các worker node trong cụm Spark. Hiện tại mỗi worker chỉ được cấp hai lõi CPU và hai gigabyte RAM, khiến thời gian xử lý mỗi lô chưa đạt ngưỡng ổn định. Việc nâng cấp lên bốn lõi CPU và bốn gigabyte RAM cho mỗi worker sẽ giúp giảm đáng kể thời gian xử lý. Ngoài ra, cần tối ưu số lượng luồng đồng thời và kích thước bộ nhớ đệm trung gian (shuffle memory) để tận dụng tối đa tài nguyên mới.
+
+\subsection{Cải thiện hiệu suất Kafka}
+Tranh chấp nhập/xuất giữa Kafka log và điểm phục hồi Spark trên cùng ổ đĩa là nguyên nhân chính khiến thông lượng thấp. Hướng giải pháp là tách riêng ổ đĩa cho Kafka log và điểm phục hồi Spark, hoặc sử dụng ổ đĩa SSD cho Kafka để tăng tốc độ ghi. Ngoài ra, có thể tăng số lượng phân vùng Kafka để phân tán tải ghi.
+
+\subsection{Mở rộng dài hạn}
+Về dài hạn, hệ thống có thể được mở rộng theo nhiều hướng. Có thể thử nghiệm A/B testing để đánh giá hiệu quả thực tế của các mô hình gợi ý khác nhau. Có thể triển khai cơ chế học liên tục (online learning) để mô hình tự cập nhật từ dữ liệu thời gian thực. Ngoài ra, việc triển khai CI/CD trên môi trường thực tế sẽ giúp tự động hóa quá trình kiểm thử và triển khai.
+
 \end{document}
