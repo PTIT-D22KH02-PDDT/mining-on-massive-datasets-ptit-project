@@ -32,33 +32,33 @@ async def replay_session(
     delay_between_events: float = 0.5,
 ):
     """Replay a single session, sending events one-by-one to the API."""
-    session_id = session_data["session"]
+    session_id = str(session_data["session"]).strip()  
     events = session_data["events"]
 
     logger.info(f"Starting session {session_id} ({len(events)} events)")
 
     for i, event in enumerate(events):
+        etype = str(event["type"]).strip().lower()
         payload = {
             "session_id": session_id,
-            "aid": event["aid"],
-            "type": event["type"],
-            "ts": int(
-                time.time() * 1000
-            ),  # Use current time for streaming compatibility
+            "aid": int(event["aid"]),
+            "type": etype,
+            "ts": int(time.time() * 1000),  # Use current time for streaming compatibility
         }
 
         try:
             resp = await client.post(f"{api_url}/api/event", json=payload, timeout=10.0)
             if resp.status_code == 200:
                 data = resp.json()
-                recs_clicks = data["recommendations"].get("clicks", [])[:5]
-                logger.info(
-                    f"  [{session_id}] Event {i + 1}/{len(events)}: "
-                    f"{event['type']:6s} aid={event['aid']:>8d} - "
-                    f"model={data['model_used']}, "
-                    f"latency={data['latency_ms']:.1f}ms, "
-                    f"top5_clicks={recs_clicks}"
-                )
+                print(json.dumps(resp.json(), indent=2))
+                # recs_clicks = data["recommendations"].get("clicks", [])[:5]
+                # logger.info(
+                #     f"  [{session_id}] Event {i + 1}/{len(events)}: "
+                #     f"{event['type']:6s} aid={event['aid']:>8d} - "
+                #     f"model={data['model_used']}, "
+                #     f"latency={data['latency_ms']:.1f}ms, "
+                #     f"top5_clicks={recs_clicks}"
+                # )
             else:
                 logger.warning(
                     f"  [{session_id}] HTTP {resp.status_code}: {resp.text[:100]}"
