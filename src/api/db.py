@@ -95,21 +95,6 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to log event: {e}")
 
-    def get_popular_items(
-        self, event_type: str = "clicks", limit: int = 20
-    ) -> List[int]:
-        """Get pre-computed popular items (AIDs only). Sort by count DESC."""
-        try:
-            with self.cursor() as cur:
-                cur.execute(
-                    "SELECT aid FROM popular_items WHERE event_type = %s AND time_scope = 'all_time' ORDER BY count DESC LIMIT %s",
-                    (event_type, limit),
-                )
-                return [row["aid"] for row in cur.fetchall()]
-        except Exception as e:
-            logger.error(f"Failed to get popular items: {e}")
-            return []
-
     def get_popular_items_with_counts(
         self, event_type: str = "clicks", limit: int = 10
     ) -> List[Dict]:
@@ -309,20 +294,6 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get spark metrics: {e}")
             return []
-
-    def log_online_hit(self, session_id: int, aid: int, event_type: str, is_hit: bool):
-        """Log whether an order/cart event was a result of a recommendation."""
-        try:
-            with self.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO online_hits (session_id, aid, event_type, is_hit)
-                    VALUES (%s, %s, %s, %s)
-                    """,
-                    (session_id, aid, event_type, is_hit),
-                )
-        except Exception as e:
-            logger.error(f"Failed to log online hit: {e}")
 
     def log_online_hits_batch(self, hits: List[tuple]):
         """Bulk insert online hits (session_id, aid, event_type, is_hit)."""

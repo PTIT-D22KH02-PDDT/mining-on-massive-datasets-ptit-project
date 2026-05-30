@@ -13,16 +13,12 @@ from pyspark.sql.functions import (
     avg,
     col,
     count,
-    countDistinct,
     current_timestamp,
     explode,
-    expr,
     lit,
     max,
-    min,
     when,
 )
-from pyspark.sql.functions import round as spark_round
 from pyspark.sql.functions import sum as spark_sum
 
 logging.basicConfig(
@@ -152,14 +148,6 @@ def main():
     )
 
     # 6. Advanced Analytics (Optional/Extra)
-    # We can keep the strict item-level funnel if we want to save it to a separate table
-    item_lifecycle_df = events_df.groupBy("session_id", "aid").agg(
-        max(when(col("type") == "clicks", 1).otherwise(0)).alias("has_click"),
-        max(when(col("type") == "carts", 1).otherwise(0)).alias("has_cart"),
-        max(when(col("type") == "orders", 1).otherwise(0)).alias("has_order"),
-    )
-
-    # Fix: Correctly compute columns for 'advanced_funnel_stats' table
     advanced_funnel_df = (
         session_agg.agg(
             lit("Batch Analysis (test.jsonl)").alias("model_used"),

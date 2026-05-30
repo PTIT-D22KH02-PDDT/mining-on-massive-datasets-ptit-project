@@ -5,11 +5,9 @@ Focuses on Producer and Topic Management.
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from aiokafka import AIOKafkaProducer
-from aiokafka.admin import AIOKafkaAdminClient, NewTopic
-from aiokafka.errors import TopicAlreadyExistsError
 
 from src.core.config import cfg
 
@@ -27,40 +25,6 @@ def _bootstrap_servers() -> str:
         "KAFKA_BOOTSTRAP_SERVERS",
         _kafka_cfg().get("bootstrap_servers", "localhost:29092"),
     )
-
-
-async def ensure_topics() -> tuple[List[str], bool]:
-    """
-    Auto-create topics from config.yml.
-    Returns (topic_list, newly_created_flag)
-    """
-    topic_defs = _kafka_cfg().get("topics", {})
-    if not topic_defs:
-        return [], False
-
-    admin = AIOKafkaAdminClient(bootstrap_servers=_bootstrap_servers())
-    await admin.start()
-
-    created = []
-    newly_created = False
-    try:
-        for td in topic_defs.values():
-            new_topic = NewTopic(
-                name=td["name"],
-                num_partitions=td.get("partitions", 1),
-                replication_factor=td.get("replication_factor", 1),
-            )
-            try:
-                await admin.create_topics([new_topic])
-                logger.info(f"Created topic: {td['name']}")
-                created.append(td["name"])
-                newly_created = True
-            except TopicAlreadyExistsError:
-                created.append(td["name"])
-    finally:
-        await admin.close()
-
-    return created, newly_created
 
 
 def _normalize_acks(val: Any) -> Any:
@@ -96,12 +60,6 @@ class KafkaProducerService:
         if self._producer:
             await self._producer.stop()
             self._producer = None
-
-    async def send(self, topic: str, message: Any, key: str | None = None):
-        if not self._producer:
-            await self.start()
-        encoded_key = key.encode("utf-8") if key else None
-        return await self._producer.send_and_wait(topic, message, key=encoded_key)
 
     async def send_buffered(self, topic: str, message: Any, key: str | None = None):
         """Fire-and-forget: returns as soon as the message is buffered (no ack wait)."""

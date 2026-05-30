@@ -11,10 +11,9 @@ import argparse
 import asyncio
 import json
 import logging
-import random
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import httpx
 
