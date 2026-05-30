@@ -1,4 +1,5 @@
 """
+python -m src.api.main
 FastAPI Server - OTTO Recommender Pipeline API.
 
 Phase 2 Improvements:
@@ -34,8 +35,11 @@ from src.api.db import Database
 from src.api.session_manager import SessionManager
 from src.core.infra.kafka_queue import KafkaMessage
 from src.evaluation.metrics import mrr_at_k, ndcg_at_k, recall_at_k
-from src.serving.sasrec_recommender import SASRecRecommender
+from src.serving.sasrec_recommender import RemoteModelRecommender
 
+from dotenv import load_dotenv
+load_dotenv()
+MODEL_NAME = os.getenv("MODEL_NAME")   #tên model ở trong env nhé 
 
 # --- JSON Logging Setup (Phase 2.2) ---
 class UUIDFormatter(logging.Formatter):
@@ -64,7 +68,7 @@ logger = logging.getLogger(__name__)
 session_mgr: Optional[SessionManager] = None
 db: Optional[Database] = None
 cold_start: Optional[ColdStartRecommender] = None
-sasrec: Optional[SASRecRecommender] = None
+sasrec: Optional[RemoteModelRecommender] = None
 kafka_producer = None
 background_queue: Optional[asyncio.Queue] = None
 
@@ -84,10 +88,14 @@ sasrec_breaker = pybreaker.CircuitBreaker(
     reset_timeout=60,
 )
 SASREC_TIMEOUT = 10.0
-
+# recommend_multi_objective
 
 async def call_sasrec_with_fallback(
-    session_aids: List[int], top_k: int, request_id: str = "-"
+    session_aids: List[int],
+    top_k: int,
+    request_id: str = "-",
+    type_sequence: Optional[List[str]] = None,
+    ts_sequence: Optional[List[int]] = None,
 ):
     """
     Phase 2.1: Call SASRec with circuit breaker + covisitation fallback.
@@ -95,14 +103,19 @@ async def call_sasrec_with_fallback(
 
     async def _call():
         try:
-            result = await sasrec.recommend_multi_objective(session_aids, top_k)
+            result = await sasrec.predict_remote(
+                top_k, session_aids,
+                type_sequence=type_sequence,
+                ts_sequence=ts_sequence,
+                model=MODEL_NAME,
+            )
             logger.info(
-                f"[{request_id}] SASRec succeeded", extra={"correlation_id": request_id}
+                f"[{request_id}] Call model succeeded", extra={"correlation_id": request_id}
             )
             return result
         except Exception as e:
             logger.warning(
-                f"[{request_id}] SASRec call failed: {e}",
+                f"[{request_id}] Model call failed: {e}",
                 extra={"correlation_id": request_id},
             )
             raise
@@ -111,7 +124,7 @@ async def call_sasrec_with_fallback(
         return await sasrec_breaker.call(_call)
     except pybreaker.CircuitBreakerError:
         logger.warning(
-            f"[{request_id}] SASRec circuit OPEN — falling back to covisitation",
+            f"[{request_id}] Circuit OPEN — falling back to covisitation",
             extra={"correlation_id": request_id},
         )
         raise
@@ -287,21 +300,25 @@ async def background_recompute_worker():
             session_id = event["session_id"]
             corr_id = event.get("corr_id", "-")
             
-            session_aids = await session_mgr.get_session_aids(session_id)
+            session_aids, type_sequence, ts_sequence = await session_mgr.get_session_sequences(session_id)
+
             session_length = len(session_aids)
             
             if session_length == 0:
                 background_queue.task_done()
                 continue
             if session_length >= 5:
-                model_used = "sasrec_deep_learning"
+                model_used = "remote_model"
                 try:
-                    recs = await call_sasrec_with_fallback(session_aids, TOP_K, request_id=corr_id)
+                    recs = await call_sasrec_with_fallback(
+                        session_aids, TOP_K, request_id=corr_id,
+                        type_sequence=type_sequence, ts_sequence=ts_sequence,
+                    )
                 except Exception as e:
                     logger.warning(
-                        f"[Worker][{corr_id}] SASRec failed, fallback to covisitation: {e}"
+                        f"[Worker][{corr_id}] Remote model failed, fallback to covisitation: {e}"
                     )
-                    model_used = "sasrec_fallback_covisitation"
+                    model_used = "remote_model_fallback_covisitation"
                     recs = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
             else:
                 model_used = "covisitation_redis"
@@ -374,13 +391,13 @@ async def lifespan(app: FastAPI):
         logger.info("PostgreSQL disabled via POSTGRES_ENABLED=false")
 
     remote_url = os.getenv(
-        "SASREC_REMOTE_URL", "https://rs-model1.vucongtuanduong.dpdns.org/"
+        "REMOTE_MODEL_URL", "https://rs-model1.vucongtuanduong.dpdns.org/"
     )
     if not remote_url:
-        logger.error("SASREC_REMOTE_URL is not set! Exiting...")
+        logger.error("REMOTE_MODEL_URL is not set! Exiting...")
         sys.exit(1)
 
-    sasrec = SASRecRecommender(remote_url=remote_url)
+    sasrec = RemoteModelRecommender(remote_url=remote_url)
     logger.info(f"SASRec initialized in FORCED REMOTE mode ({remote_url})")
 
     cold_start = ColdStartRecommender(db=db)
@@ -487,7 +504,7 @@ async def receive_event(event: EventRequest, request: Request):
 
     if cached_recs:
         # Cache HIT - return precomputed recommendations immediately
-        model_used = "cached"
+        model_used = "cached-redis"
         recommendations = cached_recs
     else:
         # Cache MISS - choose strategy based on session length
@@ -628,7 +645,7 @@ async def get_session(session_id: int):
 
 @app.get("/api/recommend/{session_id}")
 async def get_recommendations(session_id: int, top_k: int = 20):
-    session_aids = await session_mgr.get_session_aids(session_id)
+    session_aids, type_sequence, ts_sequence = await session_mgr.get_session_sequences(session_id)
     session_length = len(session_aids)
 
     if session_length == 0:
@@ -638,12 +655,14 @@ async def get_recommendations(session_id: int, top_k: int = 20):
         model_used = "covisitation_redis"
         recommendations = await session_mgr.get_covisitation_recommendations(session_aids, top_k)
     else:
-        model_used = "sasrec_deep_learning"
+        model_used = "remote_model"
         try:
-            recommendations = await call_sasrec_with_fallback(session_aids, top_k)
+            recommendations = await call_sasrec_with_fallback(
+                session_aids, top_k, type_sequence=type_sequence, ts_sequence=ts_sequence,
+            )
         except Exception:
-            model_used = "sasrec_fallback_covisitation"
-            recommendations = await session_mgr.get_covisitation_recommendations(session_aids, top_k)
+            model_used = "remote_model_fallback_covisitation"
+            recommendations = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
 
     return {
         "session_id": session_id,
