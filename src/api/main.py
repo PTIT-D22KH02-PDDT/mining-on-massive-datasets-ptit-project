@@ -30,7 +30,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from src.api.cold_start import ColdStartRecommender
 from src.api.db import Database
 from src.api.session_manager import SessionManager
 from src.core.infra.kafka_queue import KafkaMessage
@@ -67,10 +66,10 @@ logger = logging.getLogger(__name__)
 # --- Global singletons ---
 session_mgr: Optional[SessionManager] = None
 db: Optional[Database] = None
-cold_start: Optional[ColdStartRecommender] = None
 sasrec: Optional[RemoteModelRecommender] = None
 kafka_producer = None
 background_queue: Optional[asyncio.Queue] = None
+pending_sessions: set = set()  # Dedup: track sessions already in queue
 
 TOP_K = 20
 
@@ -277,9 +276,7 @@ async def refresh_ranks_task():
         try:
             if db:
                 db.refresh_popular_items_ranks()
-            if cold_start:
-                cold_start._popular_cache.clear()
-                logger.info("Popular items cache cleared")
+                logger.info("Popular items ranks refreshed")
         except Exception as e:
             logger.error(f"Error in refresh_ranks_task: {e}")
         await asyncio.sleep(120)
@@ -344,7 +341,6 @@ async def lifespan(app: FastAPI):
     global \
         session_mgr, \
         db, \
-        cold_start, \
         sasrec, \
         kafka_producer, \
         kafka_queue, \
@@ -399,8 +395,6 @@ async def lifespan(app: FastAPI):
 
     sasrec = RemoteModelRecommender(remote_url=remote_url)
     logger.info(f"SASRec initialized in FORCED REMOTE mode ({remote_url})")
-
-    cold_start = ColdStartRecommender(db=db)
 
     kafka_producer = None
     kafka_queue = None
@@ -641,35 +635,6 @@ async def receive_event(event: EventRequest, request: Request):
 async def get_session(session_id: int):
     events = await session_mgr.get_session(session_id)
     return SessionResponse(session_id=session_id, events=events, length=len(events))
-
-
-@app.get("/api/recommend/{session_id}")
-async def get_recommendations(session_id: int, top_k: int = 20):
-    session_aids, type_sequence, ts_sequence = await session_mgr.get_session_sequences(session_id)
-    session_length = len(session_aids)
-
-    if session_length == 0:
-        model_used = "popular"
-        recommendations = cold_start.recommend_empty_session(top_k)
-    elif session_length < 5:
-        model_used = "covisitation_redis"
-        recommendations = await session_mgr.get_covisitation_recommendations(session_aids, top_k)
-    else:
-        model_used = "remote_model"
-        try:
-            recommendations = await call_sasrec_with_fallback(
-                session_aids, top_k, type_sequence=type_sequence, ts_sequence=ts_sequence,
-            )
-        except Exception:
-            model_used = "remote_model_fallback_covisitation"
-            recommendations = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
-
-    return {
-        "session_id": session_id,
-        "session_length": session_length,
-        "model_used": model_used,
-        "recommendations": recommendations,
-    }
 
 
 @app.get("/api/stats")
