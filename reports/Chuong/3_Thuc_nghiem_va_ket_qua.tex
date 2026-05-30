@@ -45,7 +45,7 @@ Hệ thống gồm mười một container được tổ chức như sau:
 
 Spark được triển khai ở chế độ cụm (cluster mode) với một nút điều phối (spark-master) và hai nút công nhân (spark-tác vụ nền). spark-master chịu trách nhiệm điều phối tác vụ (job) và phân bổ tài nguyên cho các executor. spark-streaming kết nối tới spark-master để gửi tác vụ (job) xử lý streaming; các executor chạy trên tác vụ nền container nhận tác vụ (tác vụ) từ master để xử lý dữ liệu Kafka. Dữ liệu đầu vào (datasets) và điểm phục hồi (điểm phục hồi) được chia sẻ giữa các tác vụ nền qua volume Docker để đảm bảo mọi executor có thể truy cập cùng một dữ liệu.
 
-Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đồ dưới đây (Hình \ref{fig:architecture}). Khi người dùng gửi một tương tác (nhấn, thêm vào giỏ hàng, mua hàng), sự kiện được gửi đến API service qua HTTP POST. API service lưu sự kiện vào Redis để quản lý phiên, sau đó thực thi luồng gợi ý theo chiến lược luồng đọc: kiểm tra bộ nhớ đệm Redis trước, nếu có thì trả về ngay lập tức; nếu chưa có thì truy vấn ma trận covisitation từ Redis để tạo gợi ý tức thì. Đồng thời, nếu phiên đủ dài, API service đẩy tác vụ tái tính toán vào hàng đợi nền để tác vụ nền gọi mô hình SASRec từ xa và lưu kết quả mới vào cache. Sự kiện cũng được xuất bản lên Kafka để Spark Streaming xử lý phân tích bất đồng bộ và ghi kết quả vào các bảng PostgreSQL. Bảng điều khiển (Dashboard) Streamlit gọi API để hiển thị số liệu giám sát.
+Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đồ dưới đây (Hình \ref{fig:architecture}). Khi người dùng gửi một tương tác (nhấn, thêm vào giỏ hàng, mua hàng), sự kiện được gửi đến API service qua HTTP POST. API service lưu sự kiện vào Redis để quản lý phiên, sau đó thực thi luồng gợi ý theo chiến lược luồng đọc: kiểm tra bộ nhớ đệm Redis trước, nếu có thì trả về ngay lập tức; nếu chưa có thì truy vấn ma trận covisitation từ Redis để tạo gợi ý tức thì. Đồng thời, nếu phiên đủ dài, API service đẩy tác vụ tái tính toán vào hàng đợi nền để tác vụ nền gọi mô hình từ xa và lưu kết quả mới vào cache. Sự kiện cũng được xuất bản lên Kafka để Spark Streaming xử lý phân tích bất đồng bộ và ghi kết quả vào các bảng PostgreSQL. Bảng điều khiển (Dashboard) Streamlit gọi API để hiển thị số liệu giám sát.
 
 \begin{figure}[H]
 \centering
@@ -83,8 +83,8 @@ Tác vụ nền chạy liên tục, nhận các tác vụ từ hàng đợi và 
 
 \begin{enumerate}
     \item \textbf{Phiên ngắn (dưới 5 sự kiện):} Gợi ý dựa trên covisitation từ Redis - không gọi mô hình từ xa.
-    \item \textbf{Phiên dài (từ 5 sự kiện trở lên):} Gọi mô hình SASRec từ xa thông qua bộ ngắt mạch. Nếu mô hình trả về kết quả thành công, kết quả được lưu vào bộ nhớ đệm Redis để các yêu cầu tiếp theo đọc trực tiếp từ bộ nhớ đệm.
-    \item \textbf{Mô hình thất bại:} Nếu SASRec quá thời gian hoặc lỗi, hệ thống tự động chuyển sang chế độ dự phòng bằng covisitation từ Redis. Nếu bộ ngắt mạch mở do lỗi liên tiếp, hệ thống bỏ qua gọi mô hình trong một khoảng thời gian để tránh quá tải.
+    \item \textbf{Phiên dài (từ 5 sự kiện trở lên):} Gọi mô hình mô hình từ xa thông qua bộ ngắt mạch. Nếu mô hình trả về kết quả thành công, kết quả được lưu vào bộ nhớ đệm Redis để các yêu cầu tiếp theo đọc trực tiếp từ bộ nhớ đệm.
+    \item \textbf{Mô hình thất bại:} Nếu mô hình quá thời gian hoặc lỗi, hệ thống tự động chuyển sang chế độ dự phòng bằng covisitation từ Redis. Nếu bộ ngắt mạch mở do lỗi liên tiếp, hệ thống bỏ qua gọi mô hình trong một khoảng thời gian để tránh quá tải.
 \end{enumerate}
 
 Kiến trúc luồng đọc / luồng ghi tách biệt mang lại ba lợi ích chính:
@@ -213,7 +213,7 @@ Các ngưỡng SLA cụ thể cho từng KPI:
         \item WARN: $<$0,8
         \item FAIL: $\ge$1,0
     \end{itemize}
-    \item Thời gian lô Spark (Spark lô duration):
+    \item Thời gian lô Spark (Spark batch duration):
     \begin{itemize}
         \item OK: $<$5 giây
         \item WARN: $<$8 giây
@@ -236,57 +236,64 @@ Các ngưỡng SLA cụ thể cho từng KPI:
 \subsubsection{Thông lượng Kafka}
 Đánh giá Kafka sử dụng công cụ \textbf{kafka-producer-perf-test.sh} với 200.000 bản ghi, kích thước 1KB mỗi bản ghi:
 \begin{itemize}
-    \item Thông lượng: 12.868 bản ghi/giây (12,57 MB/giây).
-    \item Độ trễ trung bình: 2125 ms.
-    \item Độ trễ P95: 3365 ms.
-    \item Độ trễ tối đa: 3569 ms.
+    \item Thông lượng: 11.554 bản ghi/giây (11,28 MB/giây).
+    \item Độ trễ trung bình: 2417 ms.
+    \item Độ trễ P50: 2159 ms.
+    \item Độ trễ P95: 4687 ms.
+    \item Độ trễ tối đa: 5293 ms.
 \end{itemize}
-So với lần đo trước (v5): thông lượng cải thiện 4,2\% (từ 12.353 lên 12.868), độ trễ P95 cải thiện 3,1\% (từ 3473 ms xuống 3365 ms). Tuy nhiên, thông lượng vẫn rất xa ngưỡng OK ($>$200K), đạt FAIL. Nguyên nhân là tài nguyên CPU giới hạn trong container và tranh chấp I/O giữa Kafka log và điểm phục hồi Spark trên cùng ổ đĩa. Độ trễ P95 3365 ms ở mức WARN (dưới ngưỡng FAIL 5 giây).
+Thông lượng 11.554 bản ghi/giây ở mức FAIL, rất xa ngưỡng OK ($>$200K). Nguyên nhân chính là tài nguyên CPU giới hạn trên máy chủ và tranh chấp nhập/xuất (I/O) giữa nhật ký Kafka (Kafka log) với điểm phục hồi (checkpoint) Spark trên cùng ổ đĩa. Độ trễ P95 4687 ms ở mức WARN (dưới ngưỡng FAIL 5 giây), cho thấy Kafka vẫn đáp ứng được độ trễ chấp nhận được dù thông lượng chưa cao.
 
 \subsubsection{Kiểm tra tải API}
-Kiểm tra tải API sử dụng k6 với kịch bản tăng tải ba giai đoạn (10, 50, 100 người dùng đồng thời, mỗi giai đoạn 3 phút):
+Kiểm tra tải API sử dụng k6 với kịch bản tăng tải ba giai đoạn (10, 50, 80 người dùng đồng thời, mỗi giai đoạn 3 phút):
 \begin{itemize}
-    \item Độ trễ trung vị (P50): 415 ms.
-    \item Độ trễ trung bình: 1038 ms.
-    \item Độ trễ P95: 3791 ms.
-    \item Thông lượng: 26,4 yêu cầu/giây.
-    \item Tỷ lệ lỗi: 0,00\%.
+    \item Độ trễ trung vị (P50): 212 ms.
+    \item Độ trễ trung bình: 773 ms.
+    \item Độ trễ P95: 2889 ms.
+    \item Độ trễ tối đa: 10.002 ms.
+    \item Thông lượng: 30,9 yêu cầu/giây.
+    \item Tỷ lệ lỗi: 0,28\%.
 \end{itemize}
-So với lần đo trước (v5): độ trễ P95 cải thiện đáng kể 28,8\% (từ 5322 ms xuống 3791 ms), tỷ lệ lỗi giảm từ 0,76\% xuống 0,00\%. Đây là kết quả tích cực từ kiến trúc luồng đọc/luồng ghi mới - API luôn trả kết quả từ bộ nhớ đệm Redis, không bao giờ bị chặn bởi mô hình từ xa. Độ trễ P95 vẫn ở mức FAIL (>1 giây) do một số yêu cầu phải chờ worker nền tính toán khi bộ nhớ đệm trống, nhưng đã cải thiện rõ rệt so với v5.
+Độ trễ P95 2889 ms ở mức FAIL ($>$1 giây). Nguyên nhân là các yêu cầu (request) đầu tiên của mỗi phiên phải chờ tiến trình nền (worker) tính toán gợi ý từ đồng xuất hiện (covisitation) khi bộ nhớ đệm (cache) Redis trống, dẫn đến một số yêu cầu có độ trễ cao. Tuy nhiên, độ trễ trung vị chỉ 212 ms cho thấy phần lớn yêu cầu được phục vụ nhanh từ bộ nhớ đệm. Tỷ lệ lỗi 0,28\% ở mức WARN (dưới ngưỡng FAIL 5\%), với 41 yêu cầu lỗi trên tổng số 14.829 - chủ yếu xảy ra ở giai đoạn tải đỉnh. Thông lượng 30,9 yêu cầu/giây cho thấy API đáp ứng tốt dưới áp lực 80 người dùng đồng thời.
 
 \subsubsection{Độ ổn định Spark Streaming}
-Độ ổn định của Spark Streaming được đo bằng tỷ lệ ổn định (thời gian xử lý / khoảng lô). Với khoảng kích hoạt 10 giây:
+Spark Streaming chạy ở chế độ cụm (cluster mode) với hai nút công nhân (worker node), khoảng kích hoạt (trigger interval) 10 giây:
 \begin{itemize}
-    \item Số lô xử lý: 23 lô.
-    \item Thời gian lô trung bình: 14,3 giây.
-    \item Thời gian lô tối đa: 36,8 giây (lô đầu do bắt kịp).
-    \item Tốc độ xử lý trung bình: 870 dòng/giây.
+    \item Số lô (batch) xử lý: 25 lô.
+    \item Thời gian lô trung bình: 10,1 giây.
+    \item Thời gian lô ổn định (batches 4-20): 7,3 giây.
+    \item Thời gian lô tối thiểu: 5,2 giây.
+    \item Thời gian lô tối đa: 25,2 giây (lô đầu do bắt kịp).
+    \item Tốc độ xử lý ổn định: 1.396 dòng/giây.
 \end{itemize}
-So với v5: thời gian lô trung bình cải thiện 3\% (từ 14,77s xuống 14,32s), tốc độ xử lý cải thiện 26\% (từ 690 lên 870 dòng/giây). Tuy nhiên, tỷ lệ ổn định vẫn ở mức FAIL (>1,0). Spark chạy ở chế độ cụm (cluster mode) với hai worker node, nhưng tài nguyên CPU và RAM hạn chế trong container khiến hiệu suất chưa đạt kỳ vọng.
+Thời gian lô trung bình 10,1 giây ở mức FAIL ($>$10 giây). Tuy nhiên, sau giai đoạn bắt kịp dữ liệu tồn đọng, các lô ổn định (batches 4-20) duy trì thời gian xử lý 7,3 giây - ở mức WARN (dưới 8 giây). Tốc độ xử lý ổn định $\sim$1.400 dòng/giây vượt xa tốc độ đầu vào (input rate) $\sim$500 dòng/giây, chứng tỏ Spark đủ khả năng theo kịp luồng dữ liệu thời gian thực. Các lô cuối có thời gian xử lý (duration) cao hơn do phản áp (backpressure) khi nguồn dữ liệu cạn dần.
 
 \subsubsection{Độ trễ đầu cuối}
 Độ trễ đầu cuối đo thời gian từ lúc API nhận sự kiện đến khi dữ liệu xuất hiện trong PostgreSQL:
 \begin{itemize}
-    \item Độ trễ P50: 238 giây.
-    \item Độ trễ P95: 420 giây (7 phút).
+    \item Độ trễ P50: 201 giây.
+    \item Độ trễ P95: 409 giây ($\sim$6,8 phút).
 \end{itemize}
-So với v5: P50 cải thiện 6,7\% (từ 255s xuống 238s), P95 cải thiện 1,9\% (từ 428s xuống 420s). Nguyên nhân là Kafka publish nhanh hơn, nhưng Spark xử lý vẫn là nút thắt cổ chai chính.
+Cả hai chỉ số đều ở mức FAIL. Nguyên nhân chính là Spark Streaming phải ghi kết quả vào PostgreSQL qua khoảng lô (batch interval) 10 giây với chi phí điểm phục hồi (checkpoint overhead), kết hợp với độ trễ tích lũy từ bộ sản xuất Kafka (Kafka producer) và xử lý Spark (Spark processing). Xử lý Spark là nút thắt cổ chai (bottleneck) chính trong đường ống (pipeline).
 
 \subsubsection{Nhận xét}
-Kết quả benchmark v6 cho thấy cải thiện đáng kể so với v5:
+Kết quả đo hiệu năng (benchmark) v6 đánh giá đường ống OTTO Recommender (pipeline) trên bốn nhóm chỉ số:
 
 \begin{itemize}
-    \item \textbf{Độ trễ P95 API (FAIL → FAIL, cải thiện 28,8\%):} Từ 5322 ms xuống 3791 ms. Kiến trúc luồng đọc/luồng ghi giúp API không còn bị chặn bởi mô hình từ xa. Độ trễ P95 chủ yếu do worker nền tính toán khi bộ nhớ đệm trống.
+    \item \textbf{API (FAIL):} Độ trễ P95 2.889 ms vượt ngưỡng FAIL ($>$1 giây). Tuy nhiên, P50 chỉ 212 ms và tỷ lệ lỗi 0,28\% ở mức WARN cho thấy kiến trúc luồng đọc/luồng ghi (Read-Path/Write-Path) hoạt động hiệu quả với đa số yêu cầu. Các yêu cầu có độ trễ cao tập trung ở đầu phiên khi bộ nhớ đệm (cache) Redis chưa có dữ liệu. Thông lượng 30,9 yêu cầu/giây với 80 người dùng đồng thời (VUs) là kết quả tích cực.
 
-    \item \textbf{Tỷ lệ lỗi API (WARN → PASS):} Từ 0,76\% xuống 0,00\%. API không còn trả lỗi 500 vì Read-Path luôn hoạt động bất kể trạng thái mô hình.
+    \item \textbf{Kafka (FAIL - thông lượng, WARN - độ trễ):} Thông lượng 11.554 bản ghi/giây ở mức FAIL do tài nguyên CPU giới hạn và tranh chấp nhập/xuất (I/O) ổ đĩa. Độ trễ P95 4.687 ms ở mức WARN, cho thấy Kafka vẫn duy trì độ trễ chấp nhận được dù qua tải.
 
-    \item \textbf{Thông lượng Kafka (FAIL):} 12.868 bản ghi/giây, cải thiện nhẹ 4,2\%. Vẫn rất xa ngưỡng $>$200K do tài nguyên CPU giới hạn.
+    \item \textbf{Spark Streaming (FAIL - trung bình, WARN - ổn định):} Thời gian lô trung bình 10,1 giây ở mức FAIL, nhưng trạng thái ổn định (steady-state) 7,3 giây ở mức WARN. Tốc độ xử lý ổn định $\sim$1.400 dòng/giây vượt tốc độ đầu vào (input rate), chứng tỏ Spark đủ năng lực xử lý thời gian thực (real-time) nếu được cấp đủ tài nguyên.
 
-    \item \textbf{Độ ổn định Spark (FAIL):} Tỷ lệ ổn định $\approx$1,43, cải thiện nhẹ so với v5 (1,48). Vẫn ở mức FAIL do tài nguyên CPU và RAM hạn chế trong container worker.
-
-    \item \textbf{Độ trễ đầu cuối (FAIL):} P50 238s và P95 420s, cải thiện nhẹ. Spark xử lý vẫn là bottleneck chính.
+    \item \textbf{Độ trễ đầu cuối (FAIL):} P50 201 giây và P95 409 giây, vượt xa ngưỡng FAIL. Đây là hệ quả tích lũy từ toàn bộ đường ống, với Spark streaming là nút thắt chính.
 \end{itemize}
 
-Tóm lại, kiến trúc Read-Path/Write-Path đã cải thiện hiệu suất API đáng kể, nhưng Spark Streaming vẫn là nút thắt cổ chai cần ưu tiên xử lý. Hướng cải thiện tiếp theo là tăng tài nguyên CPU và RAM cho các worker node để cải thiện hiệu suất xử lý.
+Tóm lại, kiến trúc luồng đọc/luồng ghi giúp API phục vụ đa số yêu cầu nhanh từ bộ nhớ đệm với P50 212 ms, nhưng các chỉ số đường ống còn ở mức FAIL. Hướng cải thiện chính gồm:
+\begin{enumerate}
+    \item Tách riêng ổ đĩa cho nhật ký Kafka và điểm phục hồi Spark để giảm tranh chấp nhập/xuất.
+    \item Làm nóng bộ nhớ đệm (cache warming) cho phiên mới để giảm P95 API.
+    \item Tăng tài nguyên CPU/RAM cho các nút công nhân (worker node) Spark.
+\end{enumerate}
 
 \end{document}

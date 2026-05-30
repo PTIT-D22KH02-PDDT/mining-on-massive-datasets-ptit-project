@@ -297,38 +297,40 @@ async def background_recompute_worker():
             session_id = event["session_id"]
             corr_id = event.get("corr_id", "-")
             
-            session_aids, type_sequence, ts_sequence = await session_mgr.get_session_sequences(session_id)
+            try:
+                session_aids, type_sequence, ts_sequence = await session_mgr.get_session_sequences(session_id)
 
-            session_length = len(session_aids)
-            
-            if session_length == 0:
-                background_queue.task_done()
-                continue
-            if session_length >= 5:
-                model_used = "remote_model"
-                try:
-                    recs = await call_sasrec_with_fallback(
-                        session_aids, TOP_K, request_id=corr_id,
-                        type_sequence=type_sequence, ts_sequence=ts_sequence,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"[Worker][{corr_id}] Remote model failed, fallback to covisitation: {e}"
-                    )
-                    model_used = "remote_model_fallback_covisitation"
+                session_length = len(session_aids)
+                
+                if session_length == 0:
+                    continue
+                if session_length >= 5:
+                    model_used = "remote_model"
+                    try:
+                        recs = await call_sasrec_with_fallback(
+                            session_aids, TOP_K, request_id=corr_id,
+                            type_sequence=type_sequence, ts_sequence=ts_sequence,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[Worker][{corr_id}] Remote model failed, fallback to covisitation: {e}"
+                        )
+                        model_used = "remote_model_fallback_covisitation"
+                        recs = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
+                else:
+                    model_used = "covisitation_redis"
                     recs = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
-            else:
-                model_used = "covisitation_redis"
-                recs =await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
-            
-            # Ghi đè kết quả mới tính toán xong vào Redis Cache 
-            await session_mgr.store_recommendations(session_id, recs)
-            
-            logger.info(
-                f"[Worker][{corr_id}] Recomputed recs for session {session_id} "
-                f"(len={session_length}, model={model_used})"
-            )
-            background_queue.task_done()
+                
+                # Ghi đè kết quả mới tính toán xong vào Redis Cache 
+                await session_mgr.store_recommendations(session_id, recs)
+                
+                logger.info(
+                    f"[Worker][{corr_id}] Recomputed recs for session {session_id} "
+                    f"(len={session_length}, model={model_used})"
+                )
+            finally:
+                pending_sessions.discard(session_id)
+                background_queue.task_done()
             
         except Exception as e:
             logger.error(f"[Worker] Error trong vòng lặp chính: {e}")
@@ -508,7 +510,8 @@ async def receive_event(event: EventRequest, request: Request):
         recommendations = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
     # 3. Push to background recompute queue (non-blocking Write-Path)
     should_recompute = session_length >= 5  # Complex model needs updates
-    if should_recompute and background_queue:
+    if should_recompute and background_queue and event.session_id not in pending_sessions:
+        pending_sessions.add(event.session_id)
         try:
             background_queue.put_nowait({
                 "session_id": event.session_id,
@@ -519,6 +522,7 @@ async def receive_event(event: EventRequest, request: Request):
                 "corr_id": corr_id,
             })
         except asyncio.QueueFull:
+            pending_sessions.discard(event.session_id)
             logger.warning(f"[{corr_id}] Background recompute queue full, skipping task enqueue")
 
     # 3. Publish to Kafka via queue (non-blocking, fire-and-forget)
