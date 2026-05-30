@@ -1,4 +1,5 @@
 """
+python -m src.api.main
 FastAPI Server - OTTO Recommender Pipeline API.
 
 Phase 2 Improvements:
@@ -29,13 +30,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from src.api.cold_start import ColdStartRecommender
 from src.api.db import Database
 from src.api.session_manager import SessionManager
 from src.core.infra.kafka_queue import KafkaMessage
 from src.evaluation.metrics import mrr_at_k, ndcg_at_k, recall_at_k
-from src.serving.sasrec_recommender import SASRecRecommender
+from src.serving.sasrec_recommender import RemoteModelRecommender
 
+from dotenv import load_dotenv
+load_dotenv()
+MODEL_NAME = os.getenv("MODEL_NAME")   #tên model ở trong env nhé 
 
 # --- JSON Logging Setup (Phase 2.2) ---
 class UUIDFormatter(logging.Formatter):
@@ -63,10 +66,10 @@ logger = logging.getLogger(__name__)
 # --- Global singletons ---
 session_mgr: Optional[SessionManager] = None
 db: Optional[Database] = None
-cold_start: Optional[ColdStartRecommender] = None
-sasrec: Optional[SASRecRecommender] = None
+sasrec: Optional[RemoteModelRecommender] = None
 kafka_producer = None
 background_queue: Optional[asyncio.Queue] = None
+pending_sessions: set = set()  # Dedup: track sessions already in queue
 
 TOP_K = 20
 
@@ -84,10 +87,14 @@ sasrec_breaker = pybreaker.CircuitBreaker(
     reset_timeout=60,
 )
 SASREC_TIMEOUT = 10.0
-
+# recommend_multi_objective
 
 async def call_sasrec_with_fallback(
-    session_aids: List[int], top_k: int, request_id: str = "-"
+    session_aids: List[int],
+    top_k: int,
+    request_id: str = "-",
+    type_sequence: Optional[List[str]] = None,
+    ts_sequence: Optional[List[int]] = None,
 ):
     """
     Phase 2.1: Call SASRec with circuit breaker + covisitation fallback.
@@ -95,14 +102,19 @@ async def call_sasrec_with_fallback(
 
     async def _call():
         try:
-            result = await sasrec.recommend_multi_objective(session_aids, top_k)
+            result = await sasrec.predict_remote(
+                top_k, session_aids,
+                type_sequence=type_sequence,
+                ts_sequence=ts_sequence,
+                model=MODEL_NAME,
+            )
             logger.info(
-                f"[{request_id}] SASRec succeeded", extra={"correlation_id": request_id}
+                f"[{request_id}] Call model succeeded", extra={"correlation_id": request_id}
             )
             return result
         except Exception as e:
             logger.warning(
-                f"[{request_id}] SASRec call failed: {e}",
+                f"[{request_id}] Model call failed: {e}",
                 extra={"correlation_id": request_id},
             )
             raise
@@ -111,7 +123,7 @@ async def call_sasrec_with_fallback(
         return await sasrec_breaker.call(_call)
     except pybreaker.CircuitBreakerError:
         logger.warning(
-            f"[{request_id}] SASRec circuit OPEN — falling back to covisitation",
+            f"[{request_id}] Circuit OPEN — falling back to covisitation",
             extra={"correlation_id": request_id},
         )
         raise
@@ -264,9 +276,7 @@ async def refresh_ranks_task():
         try:
             if db:
                 db.refresh_popular_items_ranks()
-            if cold_start:
-                cold_start._popular_cache.clear()
-                logger.info("Popular items cache cleared")
+                logger.info("Popular items ranks refreshed")
         except Exception as e:
             logger.error(f"Error in refresh_ranks_task: {e}")
         await asyncio.sleep(120)
@@ -287,34 +297,40 @@ async def background_recompute_worker():
             session_id = event["session_id"]
             corr_id = event.get("corr_id", "-")
             
-            session_aids = await session_mgr.get_session_aids(session_id)
-            session_length = len(session_aids)
-            
-            if session_length == 0:
-                background_queue.task_done()
-                continue
-            if session_length >= 5:
-                model_used = "sasrec_deep_learning"
-                try:
-                    recs = await call_sasrec_with_fallback(session_aids, TOP_K, request_id=corr_id)
-                except Exception as e:
-                    logger.warning(
-                        f"[Worker][{corr_id}] SASRec failed, fallback to covisitation: {e}"
-                    )
-                    model_used = "sasrec_fallback_covisitation"
+            try:
+                session_aids, type_sequence, ts_sequence = await session_mgr.get_session_sequences(session_id)
+
+                session_length = len(session_aids)
+                
+                if session_length == 0:
+                    continue
+                if session_length >= 5:
+                    model_used = "remote_model"
+                    try:
+                        recs = await call_sasrec_with_fallback(
+                            session_aids, TOP_K, request_id=corr_id,
+                            type_sequence=type_sequence, ts_sequence=ts_sequence,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[Worker][{corr_id}] Remote model failed, fallback to covisitation: {e}"
+                        )
+                        model_used = "remote_model_fallback_covisitation"
+                        recs = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
+                else:
+                    model_used = "covisitation_redis"
                     recs = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
-            else:
-                model_used = "covisitation_redis"
-                recs =await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
-            
-            # Ghi đè kết quả mới tính toán xong vào Redis Cache 
-            await session_mgr.store_recommendations(session_id, recs)
-            
-            logger.info(
-                f"[Worker][{corr_id}] Recomputed recs for session {session_id} "
-                f"(len={session_length}, model={model_used})"
-            )
-            background_queue.task_done()
+                
+                # Ghi đè kết quả mới tính toán xong vào Redis Cache 
+                await session_mgr.store_recommendations(session_id, recs)
+                
+                logger.info(
+                    f"[Worker][{corr_id}] Recomputed recs for session {session_id} "
+                    f"(len={session_length}, model={model_used})"
+                )
+            finally:
+                pending_sessions.discard(session_id)
+                background_queue.task_done()
             
         except Exception as e:
             logger.error(f"[Worker] Error trong vòng lặp chính: {e}")
@@ -327,7 +343,6 @@ async def lifespan(app: FastAPI):
     global \
         session_mgr, \
         db, \
-        cold_start, \
         sasrec, \
         kafka_producer, \
         kafka_queue, \
@@ -374,16 +389,14 @@ async def lifespan(app: FastAPI):
         logger.info("PostgreSQL disabled via POSTGRES_ENABLED=false")
 
     remote_url = os.getenv(
-        "SASREC_REMOTE_URL", "https://rs-model1.vucongtuanduong.dpdns.org/"
+        "REMOTE_MODEL_URL", "https://rs-model1.vucongtuanduong.dpdns.org/"
     )
     if not remote_url:
-        logger.error("SASREC_REMOTE_URL is not set! Exiting...")
+        logger.error("REMOTE_MODEL_URL is not set! Exiting...")
         sys.exit(1)
 
-    sasrec = SASRecRecommender(remote_url=remote_url)
+    sasrec = RemoteModelRecommender(remote_url=remote_url)
     logger.info(f"SASRec initialized in FORCED REMOTE mode ({remote_url})")
-
-    cold_start = ColdStartRecommender(db=db)
 
     kafka_producer = None
     kafka_queue = None
@@ -487,7 +500,7 @@ async def receive_event(event: EventRequest, request: Request):
 
     if cached_recs:
         # Cache HIT - return precomputed recommendations immediately
-        model_used = "cached"
+        model_used = "cached-redis"
         recommendations = cached_recs
     else:
         # Cache MISS - choose strategy based on session length
@@ -497,7 +510,8 @@ async def receive_event(event: EventRequest, request: Request):
         recommendations = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
     # 3. Push to background recompute queue (non-blocking Write-Path)
     should_recompute = session_length >= 5  # Complex model needs updates
-    if should_recompute and background_queue:
+    if should_recompute and background_queue and event.session_id not in pending_sessions:
+        pending_sessions.add(event.session_id)
         try:
             background_queue.put_nowait({
                 "session_id": event.session_id,
@@ -508,6 +522,7 @@ async def receive_event(event: EventRequest, request: Request):
                 "corr_id": corr_id,
             })
         except asyncio.QueueFull:
+            pending_sessions.discard(event.session_id)
             logger.warning(f"[{corr_id}] Background recompute queue full, skipping task enqueue")
 
     # 3. Publish to Kafka via queue (non-blocking, fire-and-forget)
@@ -624,33 +639,6 @@ async def receive_event(event: EventRequest, request: Request):
 async def get_session(session_id: int):
     events = await session_mgr.get_session(session_id)
     return SessionResponse(session_id=session_id, events=events, length=len(events))
-
-
-@app.get("/api/recommend/{session_id}")
-async def get_recommendations(session_id: int, top_k: int = 20):
-    session_aids = await session_mgr.get_session_aids(session_id)
-    session_length = len(session_aids)
-
-    if session_length == 0:
-        model_used = "popular"
-        recommendations = cold_start.recommend_empty_session(top_k)
-    elif session_length < 5:
-        model_used = "covisitation_redis"
-        recommendations = await session_mgr.get_covisitation_recommendations(session_aids, top_k)
-    else:
-        model_used = "sasrec_deep_learning"
-        try:
-            recommendations = await call_sasrec_with_fallback(session_aids, top_k)
-        except Exception:
-            model_used = "sasrec_fallback_covisitation"
-            recommendations = await session_mgr.get_covisitation_recommendations(session_aids, top_k)
-
-    return {
-        "session_id": session_id,
-        "session_length": session_length,
-        "model_used": model_used,
-        "recommendations": recommendations,
-    }
 
 
 @app.get("/api/stats")

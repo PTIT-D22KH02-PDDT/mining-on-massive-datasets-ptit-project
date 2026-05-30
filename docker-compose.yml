@@ -248,7 +248,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-otto}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-otto123}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SASREC_REMOTE_URL=${SASREC_REMOTE_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
+      - REMOTE_MODEL_URL=${REMOTE_MODEL_URL:-https://rs-model1.vucongtuanduong.dpdns.org/}
+      - MODEL_NAME=${MODEL_NAME:-lbmrerank}
     networks:
       - spark-net
     healthcheck:

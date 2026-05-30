@@ -59,13 +59,6 @@ PG_PORT = os.getenv("POSTGRES_PORT", "5432")
 PG_DB = os.getenv("POSTGRES_DB", "otto_recommender")
 PG_USER = os.getenv("POSTGRES_USER", "otto")
 PG_PASSWORD = os.getenv("POSTGRES_PASSWORD", "otto123")
-PG_URL = f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{PG_DB}"
-PG_PROPERTIES = {
-    "user": PG_USER,
-    "password": PG_PASSWORD,
-    "driver": "org.postgresql.Driver",
-}
-PG_BATCH_SIZE = 500
 
 schema = StructType(
     [

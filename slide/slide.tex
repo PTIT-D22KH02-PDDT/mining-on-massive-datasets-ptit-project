@@ -1,0 +1,89 @@
+\documentclass[serif, aspectratio=169]{beamer}
+%\documentclass[serif]{beamer}  % for 4:3 ratio
+
+% Vietnamese support for pdflatex
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc}
+\usepackage[vietnamese]{babel}
+
+% Times New Roman font for pdflatex with Vietnamese support
+\usepackage{newtxtext,newtxmath}
+\usefonttheme{professionalfonts}
+
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{multicol}
+\usepackage{booktabs}
+\usepackage{lipsum}
+\usepackage[sort, round]{natbib}
+\bibliographystyle{plainnat}
+
+\usepackage{graphicx,pstricks,listings,stackengine}
+
+\author{Nhóm 2}
+\title{Title}
+% \subtitle{Your Subtitle}
+\institute{
+
+}
+\date{}
+\usepackage{HKUSTstyle}
+
+% defs
+\def\cmd#1{\texttt{\color{red}\footnotesize $\backslash$#1}}
+\def\env#1{\texttt{\color{blue}\footnotesize #1}}
+% set colors
+\definecolor{hkustyellow}{RGB}{167, 131, 55}
+\definecolor{hkustblue}{RGB}{0, 56, 116}
+\definecolor{hkustred}{RGB}{209, 51, 59}
+
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{deepblue},
+    emphstyle=\ttfamily\color{deepred},    % Custom highlighting style
+    stringstyle=\color{deepgreen},
+    numbers=left,
+    numberstyle=\small\color{halfgray},
+    rulesepcolor=\color{red!20!green!20!blue!20},
+    frame=shadowbox,
+}
+
+%- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+\begin{document}
+
+\begin{frame}
+  \titlepage
+  \vspace*{-0.6cm}
+
+  % small gap between title and list
+  \vspace{8pt}
+
+  \begin{columns}[t,onlytextwidth]
+    \begin{column}{0.55\textwidth}
+      \raggedright
+      {\normalsize Kiều Hồng Phong}\\[6pt]
+      {\normalsize Nguyễn Văn Quang Trung}\\[6pt]
+      {\normalsize Đỗ Văn Đại}\\[6pt]
+      {\normalsize Vũ Công Tuấn Dương}\\
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \raggedleft
+      {\normalsize B22DCKH084}\\[6pt]
+      {\normalsize B22DCKH126}\\[6pt]
+      {\normalsize B22DCKH026}\\[6pt]
+      {\normalsize B22DCKH024}\\
+    \end{column}
+  \end{columns}
+
+  \vfill
+\end{frame}
+
+\begin{frame}
+\tableofcontents[sectionstyle=show,
+subsectionstyle=show/shaded/hide,
+subsubsectionstyle=show/shaded/hide]
+\end{frame}
+
+\end{document}

@@ -25,82 +25,6 @@ class SessionManager:
         port = port or int(os.getenv("REDIS_PORT", "6379"))
         self.redis = redis.Redis(host=host, port=port, db=db, decode_responses=True)
 
-    def load_covisitation_matrix(self, parquet_path: str) -> None:
-        """
-        Loads the co-visitation matrix from Parquet file to Redis using Spark.
-        Matches the loading logic in build_covisited_matrix.py._send_partition_to_redis.
-        """
-        from src.core import SparkService
-
-        logger.info(f"Loading co-visitation matrix from {parquet_path} into Redis using Spark...")
-
-        spark_service = SparkService()
-        spark = spark_service.spark_session
-        df = spark.read.parquet(str(parquet_path))
-        logger.info(f"Total rows to load from Parquet: {df.count()}")
-        
-        # Giới hạn số lượng kết nối đồng thời vào Redis (tránh làm ngộp Redis)
-        df_optimized = df.coalesce(10)
-        
-        # Define partition writer
-        def send_partition_to_redis(partition):
-            host = os.getenv("REDIS_HOST", "localhost")
-            port = int(os.getenv("REDIS_PORT", "6379"))
-            
-            r = redis_sync.Redis(host=host, port=port, db=0, decode_responses=True)
-            pipe = r.pipeline(transaction=False)
-            
-            batch_size = 5000
-            count = 0
-            
-            for row in partition:
-                aid = row['aid']
-                candidates = row['candidates']
-                aid2_list = [str(c['aid2']) for c in candidates]
-                
-                if aid2_list:
-                    key = f"covis:{aid}"
-                    pipe.delete(key)
-                    pipe.rpush(key, *aid2_list)
-                    count += 1
-                    
-                if count % batch_size == 0:
-                    pipe.execute()
-            
-            pipe.execute()
-            
-        df_optimized.foreachPartition(send_partition_to_redis)
-        logger.info("Successfully loaded co-visitation matrix to Redis!")
-        
-        spark.stop()
-
-    async def get_covisitation(self, aid: int | str, top_k: int = 20) -> dict:
-        """
-        Retrieve related products (candidates) for a single product (aid) from Redis.
-        """
-        key = f"covis:{aid}"
-        raw_list = await self.redis.lrange(key, 0, top_k - 1)
-        if not raw_list:
-            return {"orders": [], "carts": [], "clicks": []}
-        
-        raw_list = [int(x) for x in raw_list]
-        n = len(raw_list)
-    
-        size = n // 3
-        remainder = n % 3
-        idx1 = size + (1 if remainder > 0 else 0)
-        idx2 = idx1 + size + (1 if remainder > 1 else 0)
-        
-        # 1/3 item điểm cao nhất ở đầu thì cho order, 1/3 cart, 1/3 click
-        orders = raw_list[:idx1]
-        carts = raw_list[idx1:idx2]
-        clicks = raw_list[idx2:]
-        return {
-            "orders": orders,
-            "carts": carts,
-            "clicks": clicks,
-        }
-
     async def get_covisitation_recommendations(self, aids: List[int], top_k: int = 20) -> Dict[str, List[int]]:
         # nhận nhiều aid đã tương tác vào, rồi trả về topk 
         # dùng pipeline() thay vì N round-trip Redis (mỗi await 1 lần), giờ chỉ còn 1 round-trip duy nhất. Kết quả trả về là list các list, đúng thứ tự các lrange bạn push vào pipeline.
@@ -171,14 +95,13 @@ class SessionManager:
         events = await self.get_session(session_id)
         return [e["aid"] for e in events]
 
-    async def get_session_length(self, session_id: int | str) -> int:
-        """Get the number of events in a session."""
-        return await self.redis.llen(self._key(session_id))
-
-    async def delete_session(self, session_id: int | str) -> None:
-        """Delete a session."""
-        await self.redis.delete(self._key(session_id))
-        await self.redis.delete(f"recs:{session_id}")
+    async def get_session_sequences(self, session_id: int | str):
+        # lấy list toàn bộ các aid, type, ts của 1 session 
+        events = await self.get_session(session_id)
+        aids = [e["aid"] for e in events]
+        types = [e["type"] for e in events]
+        tss = [e["ts"] for e in events]
+        return aids, types, tss
 
     async def store_recommendations(
         self, session_id: int | str, recommendations: Dict[str, List[int]]

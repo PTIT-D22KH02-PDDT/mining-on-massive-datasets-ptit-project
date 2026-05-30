@@ -1,0 +1,60 @@
+========================================================================
+  OTTO RECOMMENDER PIPELINE - BENCHMARK REPORT
+  Date: 2026-05-30 21:27:34
+  Docker version: 29.5.1
+========================================================================
+
+--- SYSTEM INFO ---
+CPU cores: 8
+Memory: 15Gi total
+Disk: 97G total, 68% used
+Spark mode: local
+Workers: spark-worker-2 spark-worker-1 
+
+--- SERVICES ---
+NAME                                                 CPU %     MEM USAGE / LIMIT     MEM %
+otto-dashboard                                       0.88%     73.73MiB / 1GiB       7.20%
+otto-api                                             1.37%     70.71MiB / 2GiB       3.45%
+otto-spark-streaming                                 0.90%     2.144GiB / 8GiB       26.80%
+mining-on-massive-datasets-ptit-project-kafka-ui-1   0.13%     263.2MiB / 15.34GiB   1.68%
+spark-worker-2                                       0.14%     216.8MiB / 4GiB       5.29%
+spark-worker-1                                       0.15%     241.4MiB / 4GiB       5.89%
+kafka                                                2.25%     432.7MiB / 4GiB       10.56%
+mining-on-massive-datasets-ptit-project-postgres-1   0.13%     61.27MiB / 2GiB       2.99%
+mining-on-massive-datasets-ptit-project-redis-1      1.32%     289.8MiB / 1.5GiB     18.87%
+spark-master                                         0.15%     112.4MiB / 15.34GiB   0.72%
+
+--- KAFKA PRODUCER ---
+35100 records sent, 7015.8 records/sec (6.85 MB/sec), 4364.3 ms avg latency, 5293.0 ms max latency.
+71985 records sent, 14397.0 records/sec (14.06 MB/sec), 2731.5 ms avg latency, 4893.0 ms max latency.
+200000 records sent, 11554.0 records/sec (11.28 MB/sec), 2417.31 ms avg latency, 5293.00 ms max latency, 2159 ms 50th, 4687 ms 95th, 5112 ms 99th, 5236 ms 99.9th.
+
+--- SPARK STREAMING PERFORMANCE ---
+  batches=25 avg_ms=10111ms max_ms=25154ms avg_rps=1057.0 rows/s (from saved JSON)
+
+--- E2E PIPELINE LATENCY ---
+  events=14829 avg_age=208s p50=201s p95=409s
+
+--- RESOURCE USAGE (AVG during test) ---
+  otto-api: CPU avg=N/A% peak=N/A% | Mem avg=N/AMB
+  otto-spark-streaming: CPU avg=N/A% peak=N/A% | Mem avg=N/AMB
+  kafka: CPU avg=N/A% peak=N/A% | Mem avg=N/AMB
+  spark-master: CPU avg=0.3% peak=2.9% | Mem avg=62MB
+  spark-worker-1: CPU avg=0.1% peak=0.6% | Mem avg=117MB
+  spark-worker-2: CPU avg=0.1% peak=0.7% | Mem avg=109MB
+  postgres-1: CPU avg=9.5% peak=9.2% | Mem avg=23MB
+  redis-1: CPU avg=12.6% peak=9.9% | Mem avg=145MB
+
+--- SLA VERDICT ---
+  API P95 latency:      2889.2504747999965ms  [FAIL]
+  API error rate:       0.28%  [PASS]
+  Kafka producer TPS:   11554.0  [FAIL]
+  Kafka P95 latency:    4687ms  [WARN]
+  Spark batch duration: 10.11s  [FAIL]
+  Spark batches:        25
+  E2E latency P50:      201s  [FAIL]
+  E2E latency P95:      409s  [FAIL]
+
+========================================================================
+  Report saved to: /home/duongvct/Documents/workspace/PTIT/Y4T2/mining-on-massive-datasets-ptit-project/benchmark/results/report_20260530_212734.txt
+========================================================================

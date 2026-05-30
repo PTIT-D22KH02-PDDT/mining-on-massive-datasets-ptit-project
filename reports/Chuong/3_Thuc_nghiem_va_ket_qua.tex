@@ -5,7 +5,7 @@
 Nội dung dành riêng.
 
 \section{Hệ thống xử lý dữ liệu}
-Hệ thống xử lý dữ liệu của đề tài gồm mười một dịch vụ (service), mỗi dịch vụ đảm nhận một vai trò xác định trong đường ống xử lý (pipeline) từ khi tiếp nhận sự kiện từ người dùng đến khi lưu trữ kết quả phân tích. Phần này trình bày kiến trúc tổng quan của hệ thống, luồng dữ liệu chi tiết giữa các thành phần, và cách triển khai từng module xử lý.
+Hệ thống xử lý dữ liệu của đề tài gồm mười một dịch vụ (service), mỗi dịch vụ đảm nhận một vai trò xác định trong đường ống xử lý (đường ống) từ khi tiếp nhận sự kiện từ người dùng đến khi lưu trữ kết quả phân tích. Phần này trình bày kiến trúc tổng quan của hệ thống, luồng dữ liệu chi tiết giữa các thành phần, và cách triển khai từng module xử lý.
 
 \subsection{Kiến trúc tổng quan}
 Hệ thống gồm mười một container được tổ chức như sau:
@@ -21,15 +21,15 @@ Hệ thống gồm mười một container được tổ chức như sau:
 \hline
 \textbf{spark-master} & Điều phối tác vụ (job) Spark trong cụm (cluster) \\
 \hline
-\textbf{spark-worker-1} & Nút công nhân (worker) chạy tác vụ (task) Spark \\
+\textbf{spark-tác vụ nền-1} & Nút công nhân (tác vụ nền) chạy tác vụ (tác vụ) Spark \\
 \hline
-\textbf{spark-worker-2} & Nút công nhân (worker) chạy tác vụ (task) Spark \\
+\textbf{spark-tác vụ nền-2} & Nút công nhân (tác vụ nền) chạy tác vụ (tác vụ) Spark \\
 \hline
 \textbf{spark-streaming} & Xử lý thời gian thực từ Kafka, ghi dữ liệu phân tích \\
 \hline
-\textbf{dashboard} & Bảng điều khiển (Dashboard) giám sát và trực quan hóa \\
+\textbf{bảng điều khiển} & Bảng điều khiển (Dashboard) giám sát và trực quan hóa \\
 \hline
-\textbf{setup-jobs} & Batch job khởi tạo dữ liệu (chạy một lần) \\
+\textbf{tác vụ khởi tạo} & Batch job khởi tạo dữ liệu (chạy một lần) \\
 \hline
 \textbf{kafka} & Hàng đợi tin nhắn cho luồng sự kiện thời gian thực \\
 \hline
@@ -43,9 +43,9 @@ Hệ thống gồm mười một container được tổ chức như sau:
 \caption{Các dịch vụ trong hệ thống}
 \end{table}
 
-Spark được triển khai ở chế độ cụm (cluster mode) với một nút điều phối (spark-master) và hai nút công nhân (spark-worker). spark-master chịu trách nhiệm điều phối tác vụ (job) và phân bổ tài nguyên cho các executor. spark-streaming kết nối tới spark-master để gửi tác vụ (job) xử lý streaming; các executor chạy trên worker container nhận tác vụ (task) từ master để xử lý dữ liệu Kafka. Dữ liệu đầu vào (datasets) và điểm phục hồi (checkpoint) được chia sẻ giữa các worker qua volume Docker để đảm bảo mọi executor có thể truy cập cùng một dữ liệu.
+Spark được triển khai ở chế độ cụm (cluster mode) với một nút điều phối (spark-master) và hai nút công nhân (spark-tác vụ nền). spark-master chịu trách nhiệm điều phối tác vụ (job) và phân bổ tài nguyên cho các executor. spark-streaming kết nối tới spark-master để gửi tác vụ (job) xử lý streaming; các executor chạy trên tác vụ nền container nhận tác vụ (tác vụ) từ master để xử lý dữ liệu Kafka. Dữ liệu đầu vào (datasets) và điểm phục hồi (điểm phục hồi) được chia sẻ giữa các tác vụ nền qua volume Docker để đảm bảo mọi executor có thể truy cập cùng một dữ liệu.
 
-Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đồ dưới đây (Hình \ref{fig:architecture}). Khi người dùng gửi một tương tác (click, thêm vào giỏ hàng, mua hàng), sự kiện được gửi đến API service qua HTTP POST. API service lưu sự kiện vào Redis để quản lý phiên, xuất bản sự kiện lên Kafka để xử lý phân tích bất đồng bộ, và ghi dữ liệu thô vào PostgreSQL. Đồng thời, API service thực thi luồng gợi ý bằng cách gọi API đến phía máy chủ (server) đang lưu trữ (host) mô hình hệ gợi ý để trả về danh sách sản phẩm đề xuất. Về phía xử lý luồng, Spark Streaming gửi tác vụ (job) từ Kafka lên cụm Spark (spark-master + spark-worker) để đọc các sự kiện từ Kafka theo cơ chế lô nhỏ (micro-batch), thực hiện sáu pipeline phân tích song song, và ghi kết quả vào các bảng PostgreSQL tương ứng. Bảng điều khiển (Dashboard) Streamlit gọi API cho phía máy chủ (server) và phía máy chủ sẽ truy vấn dữ liệu từ PostgreSQL và trả về phản hồi để Streamlit hiển thị số liệu giám sát.
+Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đồ dưới đây (Hình \ref{fig:architecture}). Khi người dùng gửi một tương tác (nhấn, thêm vào giỏ hàng, mua hàng), sự kiện được gửi đến API service qua HTTP POST. API service lưu sự kiện vào Redis để quản lý phiên, sau đó thực thi luồng gợi ý theo chiến lược luồng đọc: kiểm tra bộ nhớ đệm Redis trước, nếu có thì trả về ngay lập tức; nếu chưa có thì truy vấn ma trận covisitation từ Redis để tạo gợi ý tức thì. Đồng thời, nếu phiên đủ dài, API service đẩy tác vụ tái tính toán vào hàng đợi nền để tác vụ nền gọi mô hình từ xa và lưu kết quả mới vào cache. Sự kiện cũng được xuất bản lên Kafka để Spark Streaming xử lý phân tích bất đồng bộ và ghi kết quả vào các bảng PostgreSQL. Bảng điều khiển (Dashboard) Streamlit gọi API để hiển thị số liệu giám sát.
 
 \begin{figure}[H]
 \centering
@@ -57,159 +57,118 @@ Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đ
 \subsection{Hệ thống xử lý dữ liệu}
 
 \subsubsection{Tiếp nhận và xử lý sự kiện}
-API service được xây dựng bằng FastAPI, tiếp nhận các tương tác người dùng thông qua điểm cuối (endpoint) \textbf{POST /api/event}. Mỗi sự kiện bao gồm bốn trường:
-\begin{itemize}
-    \item \textbf{session\_id} - định danh phiên
-    \item \textbf{aid} - mã sản phẩm
-    \item \textbf{type} - loại tương tác (clicks, carts, orders)
-    \item \textbf{ts} - thời gian Unix timestamp (mili-giây)
-\end{itemize}
-Khi nhận được sự kiện, API service thực hiện các bước sau:
+Dịch vụ API được xây dựng bằng FastAPI, tiếp nhận các tương tác người dùng thông qua điểm cuối REST. Mỗi sự kiện bao gồm bốn trường: định danh phiên, mã sản phẩm, loại tương tác và thời gian xảy ra. Khi nhận được sự kiện, dịch vụ API thực hiện các bước sau:
 
 \begin{enumerate}
-    \item \textbf{Lưu vào Redis:} Sự kiện được thêm vào cuối danh sách (list) của phiên tương ứng trong Redis thông qua lệnh \textbf{RPUSH}. Khóa có định dạng \textbf{session:\{session\_id\}} và được thiết lập thời gian sống (TTL) là 30 phút. Redis List là cấu trúc dữ liệu phù hợp cho việc lưu chuỗi sự kiện theo thứ tự thời gian, hỗ trợ thao tác thêm ở cuối (RPUSH) và đọc toàn bộ (LRANGE) với độ phức tạp O(1). Thao tác này trả về độ dài hiện tại của phiên - tham số quan trọng cho bước định tuyến mô hình.
-    \item \textbf{Xuất bản lên Kafka:} Sự kiện được gửi bất đồng bộ (background task) lên topic \textbf{user-events} của Kafka với thông tin chi tiết bao gồm \textbf{session\_id}, \textbf{aid}, \textbf{type}, \textbf{ts} và \textbf{model\_used}. Việc gửi bất đồng bộ đảm bảo API không bị chặn bởi thao tác I/O của Kafka, giữ thời gian phản hồi ở mức thấp.
-    \item \textbf{Ghi vào PostgreSQL:} Sự kiện thô được ghi vào bảng \textbf{collected\_events} thông qua cơ chế bộ đệm (buffer). Thay vì ghi từng sự kiện một, API service đẩy sự kiện vào hàng đợi bộ đệm (buffer) Redis và một tác vụ nền (background task) chạy định kỳ mỗi 5 giây sẽ đẩy (flush) toàn bộ bộ đệm vào PostgreSQL theo lô (batch insert) với kích thước tối đa 50 bản ghi mỗi lần. Cơ chế này giảm tải kết nối database và tránh tạo quá nhiều transaction nhỏ lẻ.
-    \item \textbf{Thực thi gợi ý:} Luồng gợi ý được kích hoạt dựa trên hai điều kiện:
+    \item \textbf{Lưu vào Redis:} Sự kiện được thêm vào cuối danh sách của phiên tương ứng trong Redis. Mỗi phiên có thời gian sống được thiết lập tự động, đảm bảo các phiên không hoạt động sẽ bị xóa sau một khoảng thời gian nhất định. Thao tác này trả về độ dài hiện tại của phiên - tham số quan trọng cho bước định tuyến mô hình.
+
+    \item \textbf{Tra cứu gợi ý từ Redis (luồng đọc):} Đây là bước then chốt trong kiến trúc luồng đọc. Dịch vụ API kiểm tra bộ nhớ đệm Redis trước:
 \begin{itemize}
-    \item Độ dài phiên hiện tại chia hết cho 3.
-    \item Loại sự kiện là carts hoặc orders.
+    \item \textbf{Bộ nhớ đệm có dữ liệu:} Nếu đã có kết quả gợi ý được tính toán trước đó, trả về ngay lập tức cho người dùng. Đây là trường hợp phổ biến nhất, đảm bảo độ trễ phản hồi ở mức ms.
+    \item \textbf{Bộ nhớ đệm trống:} Nếu chưa có, dịch vụ API truy vấn ma trận covisitation từ Redis để lấy danh sách sản phẩm liên quan cho từng sản phẩm trong phiên, sau đó tổng hợp và xếp hạng theo điểm số. Toàn bộ quy trình chỉ cần một lần truy vấn đến Redis, đảm bảo độ trễ thấp.
 \end{itemize}
-Nếu không thỏa điều kiện, hệ thống trả về kết quả gợi ý đã được lưu trong bộ nhớ đệm Redis (cache). Điều này giúp giảm 66\% số lần tính toán gợi ý mà không ảnh hưởng đáng kể đến trải nghiệm người dùng, vì sau 3 sự kiện kết quả gợi ý mới cần được cập nhật. Khi có sự kiện carts hoặc orders, kết quả luôn được tính toán lại ngay lập tức vì đây là các tín hiệu có mức độ quan tâm (intent) cao.
-    \item \textbf{Lưu kết quả vào bộ nhớ đệm:} Kết quả gợi ý được lưu vào Redis với khóa \textbf{recs:\{session\_id\}} và TTL là 30 phút. Lần truy vấn tiếp theo trong cùng phiên sẽ đọc từ cache thay vì tính toán lại.
-    \item \textbf{Ghi log dự đoán:} Thông tin về lần dự đoán (model được sử dụng, độ dài phiên, danh sách sản phẩm đề xuất, thời gian xử lý) được ghi vào bảng \textbf{predictions\_log} thông qua cơ chế bộ đệm (buffer) tương tự.
-    \item \textbf{Theo dõi độ chính xác:} Nếu sự kiện là carts hoặc orders, hệ thống kiểm tra xem sản phẩm người dùng tương tác có nằm trong danh sách gợi ý vừa trả về không, và ghi kết quả vào bảng \textbf{online\_hits} để tính toán tỷ lệ trúng (hit rate).
+Luồng đọc được thiết kế để luôn trả về kết quả cho người dùng ngay lập tức, không chờ đợi bất kỳ mô hình nào. Điều này giúp duy trì thời gian phản hồi ổn định bất kể trạng thái của hệ thống gợi ý.
+
+    \item \textbf{Đẩy tác vụ tái tính toán nền (luồng ghi):} Nếu độ dài phiên lớn hơn hoặc bằng 5 sự kiện, dịch vụ API đẩy thông tin phiên vào hàng đợi để tác vụ nền thực thi. Tác vụ này chạy bất đồng bộ, không chặn luồng phản hồi chính. Các phiên ngắn (dưới 5 sự kiện) không cần tái tính toán vì covisitation đã đủ tốt.
+
+    \item \textbf{Xuất bản lên Kafka:} Sự kiện được gửi bất đồng bộ lên hàng đợi tin nhắn Kafka với thông tin bao gồm mã phiên, mã sản phẩm, loại tương tác, thời gian và mô hình được sử dụng. Việc gửi bất đồng bộ đảm bảo API không bị chặn bởi thao tác nhập/xuất (I/O) của Kafka, giữ thời gian phản hồi ở mức thấp.
+
+    \item \textbf{Đệm vào PostgreSQL:} Sự kiện thô và thông tin dự đoán được đẩy vào các hàng đợi bộ đệm Redis. Một tác vụ nền chạy định kỳ sẽ đẩy toàn bộ bộ đệm vào PostgreSQL theo lô. Cơ chế này giảm tải kết nối cơ sở dữ liệu và tránh tạo quá nhiều giao dịch nhỏ lẻ.
+
+    \item \textbf{Theo dõi độ chính xác:} Nếu sự kiện là thao tác thêm vào giỏ hàng hoặc mua hàng, hệ thống kiểm tra xem sản phẩm người dùng tương tác có nằm trong danh sách gợi ý vừa trả về không, và ghi kết quả để tính toán tỷ lệ trúng và các chỉ số đánh giá.
 \end{enumerate}
 
-API service cũng cung cấp điểm cuối (endpoint) \textbf{GET /api/stats} phục vụ bảng điều khiển (dashboard) Streamlit, trả về tổng hợp các chỉ số:
+\subsubsection{Tái tính toán nền (luồng ghi)}
+Tác vụ nền chạy liên tục, nhận các tác vụ từ hàng đợi và thực thi theo chiến lược sau:
+
+\begin{enumerate}
+    \item \textbf{Phiên ngắn (dưới 5 sự kiện):} Gợi ý dựa trên covisitation từ Redis - không gọi mô hình từ xa.
+    \item \textbf{Phiên dài (từ 5 sự kiện trở lên):} Gọi mô hình mô hình từ xa thông qua bộ ngắt mạch. Nếu mô hình trả về kết quả thành công, kết quả được lưu vào bộ nhớ đệm Redis để các yêu cầu tiếp theo đọc trực tiếp từ bộ nhớ đệm.
+    \item \textbf{Mô hình thất bại:} Nếu mô hình quá thời gian hoặc lỗi, hệ thống tự động chuyển sang chế độ dự phòng bằng covisitation từ Redis. Nếu bộ ngắt mạch mở do lỗi liên tiếp, hệ thống bỏ qua gọi mô hình trong một khoảng thời gian để tránh quá tải.
+\end{enumerate}
+
+Kiến trúc luồng đọc / luồng ghi tách biệt mang lại ba lợi ích chính:
 \begin{itemize}
-    \item Số phiên hoạt động.
-    \item Thống kê dự đoán: tổng số, độ trễ (latency) trung bình, phân bố model usage.
-    \item Tỷ lệ chuyển đổi funnel.
-    \item Tỷ lệ trúng (hit rate).
-    \item Metric Spark và các log bất thường.
+    \item \textbf{Độ trễ thấp:} Người dùng luôn nhận kết quả từ Redis với độ trễ ms, thay vì phải chờ đợi mô hình từ xa.
+    \item \textbf{Khả năng phục hồi:} Khi mô hình từ xa gặp sự cố hoặc bảo trì, luồng đọc vẫn hoạt động bình thường với covisitation.
+    \item \textbf{Tính đồng thời:} Tác vụ nền có thể xử lý nhiều phiên song song mà không ảnh hưởng đến tốc độ phản hồi của API.
 \end{itemize}
 
-Ngoài ra, API service triển khai hai tác vụ nền chạy định kỳ:
+Ngoài ra, dịch vụ API triển khai ba tác vụ nền chạy định kỳ:
 \begin{itemize}
-    \item \textbf{flush\_db\_buffers\_task} (mỗi 5 giây): Đọc dữ liệu từ các bộ đệm (buffer) Redis và ghi hàng loạt vào PostgreSQL. Các bộ đệm (buffer) được bảo vệ bởi giới hạn kích thước tối đa 10000 bản ghi và TTL 1 giờ để tránh tràn bộ nhớ Redis trong trường hợp hạ nguồn (downstream) gặp sự cố.
-    \item \textbf{refresh\_ranks\_task} (mỗi 120 giây): Tính toán lại thứ hạng (rank) cho các sản phẩm phổ biến trong bảng \textbf{popular\_items} bằng hàm xếp hạng ROW\_NUMBER() của PostgreSQL, vì Spark Streaming không duy trì thứ tự sắp xếp trong quá trình cập nhật luồng.
+    \item \textbf{Tái tính toán gợi ý:} Tính toán lại gợi ý cho các phiên dài, lưu kết quả vào bộ nhớ đệm.
+    \item \textbf{Đồng bộ dữ liệu:} Đọc dữ liệu từ các bộ đệm Redis và ghi hàng loạt vào PostgreSQL.
+    \item \textbf{Làm mới thứ hạng:} Tính toán lại thứ hạng cho các sản phẩm phổ biến.
 \end{itemize}
-Việc dọn dẹp (cleanup) dữ liệu cũ được thực hiện bởi một container riêng (docker-compose service \textbf{cleanup} với \textbf{profile: [cleanup]}), chạy script SQL xóa dữ liệu cũ hơn 30 ngày, kích hoạt thủ công hoặc qua cron job bên ngoài.
+Việc dọn dẹp dữ liệu cũ được thực hiện bởi một container riêng, chạy script SQL xóa dữ liệu cũ hơn 30 ngày, kích hoạt thủ công hoặc qua cron job bên ngoài.
 
 \subsubsection{Truyền tải luồng sự kiện}
-Kafka đóng vai trò trung gian giữa API service và Spark Streaming, đảm bảo tính bất đồng bộ và khả năng phục hồi của pipeline. Hệ thống sử dụng Apache Kafka phiên bản 4.1.1 chạy ở chế độ KRaft (không phụ thuộc ZooKeeper) với một topic duy nhất tên \textbf{user-events}.
+Kafka đóng vai trò trung gian giữa dịch vụ API và Spark Streaming, đảm bảo tính bất đồng bộ và khả năng phục hồi của toàn bộ đường ống xử lý. Hệ thống sử dụng Apache Kafka chạy ở chế độ KRaft với một topic duy nhất cho luồng sự kiện người dùng.
 
-Producer (API service) cấu hình với \textbf{acks=1} (chỉ cần leader ghi nhận thành công, không cần tất cả replica), \textbf{linger.ms=10} (gom tin nhắn trong 10ms trước khi gửi để tối ưu batch), và sử dụng \textbf{session\_id} làm khóa phân vùng để đảm bảo các sự kiện cùng phiên được ghi vào cùng một partition, duy trì thứ tự xử lý. Việc gửi tin nhắn được thực hiện bất đồng bộ qua background task của FastAPI, không chặn luồng phản hồi chính.
+Trình sản xuất (producer) được cấu hình để tối ưu hiệu năng: chỉ cần nút chủ ghi nhận thành công (không cần tất cả bản sao xác nhận), gom nhiều tin nhắn thành lô trước khi gửi để giảm số lần gọi nhập/xuất (I/O), và sử dụng mã phiên làm khóa phân vùng để đảm bảo các sự kiện cùng một phiên luôn được ghi vào cùng một phân vùng, duy trì thứ tự xử lý.
 
-Việc sử dụng Kafka làm lớp trung gian mang lại ba lợi ích chính:
-\begin{itemize}
-    \item Tách rời (decouple) API service khỏi quá trình xử lý phân tích, cho phép mỗi thành phần mở rộng độc lập.
-    \item Cho phép Spark đọc lại dữ liệu từ đầu (replay) khi cần phục hồi sau sự cố hoặc tái tính toán.
-    \item Tạo điều kiện mở rộng hạ nguồn (downstream) khi cần thêm consumer mới (ví dụ pipeline đánh giá hoặc huấn luyện mô hình) mà không cần sửa đổi API.
-\end{itemize}
+Việc sử dụng Kafka làm lớp trung gian mang lại nhiều lợi ích. Thứ nhất, dịch vụ API và Spark Streaming được tách rời hoàn toàn, cho phép mỗi thành phần mở rộng độc lập mà không ảnh hưởng đến bên kia. Thứ hai, Spark có thể đọc lại dữ liệu từ đầu khi cần phục hồi sau sự cố hoặc tái tính toán. Thứ ba, khi cần thêm trình tiêu thụ mới, chỉ cần thêmđăng ký vào topic mà không cần sửa đổi dịch vụ API.
 
 \subsubsection{Xử lý streaming với Spark Structured Streaming}
-Spark Streaming đọc dữ liệu từ Kafka topic \textbf{user-events} thông qua cơ chế readStream của Spark Structured Streaming. Mỗi lô nhỏ (micro-batch) được kích hoạt với khoảng kích hoạt (trigger interval) 10 giây và giới hạn tối đa 1000 số thứ tự bản ghi (offset) mỗi lần đọc để kiểm soát phản áp (backpressure). Dữ liệu thô dạng JSON được phân tích cú pháp (parse) với lược đồ (schema) cố định gồm các trường:
-\begin{itemize}
-    \item \textbf{session\_id}
-    \item \textbf{aid}
-    \item \textbf{type}
-    \item \textbf{ts}
-    \item \textbf{model\_used}
-\end{itemize}
+Spark Streaming đọc dữ liệu từ Kafka thông qua cơ chế đọc luồng của Spark Structured Streaming. Mỗi lô nhỏ được kích hoạt với khoảng kích hoạt 10 giây và áp dụng cơ chế kiểm soát phản áp để giới hạn số bản ghi xử lý mỗi lô. Dữ liệu thô dạng JSON được phân tích cú pháp với lược đồ cố định gồm các trường: định danh phiên, mã sản phẩm, loại tương tác, thời gian và mô hình được sử dụng.
 
-Spark áp dụng mốc thời gian (watermark) 2 phút trên trường dấu thời gian (timestamp) - các sự kiện đến trễ hơn 2 phút so với thời gian hiện tại sẽ bị loại bỏ. Ngưỡng này dung hòa giữa độ trễ của dữ liệu thời gian thực (dao động mạng (network jitter)) và nhu cầu giữ trạng thái (state) của các pipeline có cửa sổ (window).
+Spark áp dụng mốc thời gian 2 phút trên trường dấu thời gian - các sự kiện đến trễ hơn 2 phút so với thời gian hiện tại sẽ bị loại bỏ. Ngưỡng này dung hòa giữa độ trễ của dữ liệu thời gian thực và nhu cầu giữ trạng thái của các đường ống có cửa sổ thời gian.
 
-Từ luồng dữ liệu đã được phân tích (parse), Spark thực hiện sáu pipeline phân tích song song thông qua cơ chế ThreadPoolExecutor (tối đa 6 luồng đồng thời) trong hàm \textbf{unified\_foreach\_batch}:
+Từ luồng dữ liệu đã được phân tích, Spark thực hiện sáu đường ống phân tích song song thông qua cơ chế đa luồng trong hàm xử lý cho từng lô:
 
 \begin{enumerate}
-    \item[\textbf{A.}] \textbf{Thống kê theo khoảng thời gian (\textbf{stats\_hourly}):} Tính toán các chỉ số tổng hợp theo cửa sổ (window) 1 phút: tổng số sự kiện, số phiên duy nhất (dùng \textbf{approx\_count\_distinct} với thuật toán HyperLogLog, sai số $\approx$2\%), số sản phẩm duy nhất, số sự kiện theo từng loại (click, cart, order), và tỷ lệ chuyển đổi click qua cart, cart qua order. Dữ liệu được ghi vào bảng \textbf{stats\_hourly} theo chế độ thêm (append) (mỗi cửa sổ (window) là một dòng mới). Bảng này phục vụ dashboard theo dõi xu hướng theo thời gian và phát hiện bất thường về lưu lượng.
+    \item[\textbf{A.}] \textbf{Thống kê theo khoảng thời gian:} Tính toán các chỉ số tổng hợp theo cửa sổ thời gian 1 phút: tổng số sự kiện, số phiên duy nhất (sử dụng thuật toán đếm xấp xỉ với sai số $\approx$2\%), số sản phẩm duy nhất, số sự kiện theo từng loại (nhấn, thêm vào giỏ, mua), và tỷ lệ chuyển đổi. Dữ liệu được ghi theo chế độ thêm mới. Bảng này phục vụ bảng điều khiển theo dõi xu hướng theo thời gian và phát hiện bất thường về lưu lượng.
 
-    \item[\textbf{B.}] \textbf{Phát hiện bất thường (\textbf{anomaly\_logs}):} Phát hiện phiên có dấu hiệu bot dựa trên ngưỡng động. Với mỗi phiên, pipeline tính số sự kiện trung bình mỗi phút; nếu vượt quá ngưỡng (\textit{mean} + $k \times \textit{std}$) thì ghi nhận là bất thường. Các phiên bất thường được ghi vào bảng \textbf{anomaly\_logs} để phục vụ giám sát và lọc nhiễu về sau.
+    \item[\textbf{B.}] \textbf{Phát hiện bất thường:} Phát hiện phiên có dấu hiệu bất thường dựa trên ngưỡng động. Với mỗi phiên, đường ống tính số sự kiện trung bình mỗi phút; nếu vượt quá ngưỡng (trung bình cộng ba lần độ lệch chuẩn) thì ghi nhận là bất thường. Các phiên bất thường được ghi vào bảng giám sát để phục vụ lọc nhiễu về sau.
 
-    \item[\textbf{C.}] \textbf{Độ phổ biến thời gian thực (\textbf{popular\_items}):} Tính toán số lần xuất hiện lũy kế (cumulative) của từng sản phẩm theo loại sự kiện, sử dụng \textbf{outputMode("update")} với \textbf{groupBy} toàn cục. Vì dữ liệu được tích lũy từ đầu phiên streaming, mỗi batch mới ghi đè (UPSERT) giá trị đã tồn tại thay vì cộng dồn - tránh lỗi đếm trùng (double-counting). Hệ thống không áp dụng cửa sổ (window) cho pipeline này vì yêu cầu độ phổ biến "mọi thời điểm" (all-time). Do Spark Streaming không duy trì thứ tự sắp xếp khi cập nhật luồng, thứ hạng (rank) của từng sản phẩm được tính toán lại định kỳ bởi tác vụ nền làm mới (refresh) trong API service sử dụng \textbf{ROW\_NUMBER() OVER (PARTITION BY event\_type ORDER BY count DESC)}.
+    \item[\textbf{C.}] \textbf{Độ phổ biến thời gian thực:} Tính toán số lần xuất hiện lũy kế của từng sản phẩm theo loại sự kiện, sử dụng phép gom nhóm toàn cục với chế độ cập nhật. Vì dữ liệu được tích lũy từ đầu phiên streaming, mỗi lô mới ghi đè giá trị đã tồn tại thay vì cộng dồn - tránh lỗi đếm trùng. Hệ thống không áp dụng cửa sổ thời gian cho đường ống này vì yêu cầu độ phổ biến mọi thời điểm. Do Spark Streaming không duy trì thứ tự sắp xếp khi cập nhật luồng, thứ hạng của từng sản phẩm được tính toán lại định kỳ bởi tác vụ nền làm mới trong dịch vụ API.
 
-    \item[\textbf{D.}] \textbf{Hiệu suất sản phẩm (\textbf{stats\_items}):} Tính toán các chỉ số cho từng sản phẩm: tổng số click, cart, order, và tỷ lệ chuyển đổi click qua cart, click qua order, cart qua order. Pipeline áp dụng cửa sổ (window) 1 giờ để tránh trạng thái không giới hạn (unbounded state) trên mốc thời gian (watermark) - Spark sẽ loại bỏ các cửa sổ (window) cũ hơn mốc thời gian (watermark), kiểm soát bộ nhớ. Dữ liệu được ghi vào bảng \textbf{stats\_items} bằng UPSERT, với khóa chính là \textbf{aid}.
+    \item[\textbf{D.}] \textbf{Hiệu suất sản phẩm:} Tính toán các chỉ số cho từng sản phẩm: tổng số lần nhấn, thêm vào giỏ, mua, và tỷ lệ chuyển đổi. Đường ống áp dụng cửa sổ thời gian 1 giờ để tránh trạng thái không giới hạn trên mốc thời gian - Spark sẽ loại bỏ các cửa sổ cũ hơn mốc thời gian, kiểm soát bộ nhớ. Dữ liệu được ghi vào bảng hiệu suất sản phẩm bằng cơ chế ghi đè, với khóa chính là mã sản phẩm.
 
-    \item[\textbf{E.}] \textbf{Thống kê funnel theo mô hình (\textbf{advanced\_funnel}):} Theo dõi hiệu suất của từng mô hình gợi ý thông qua các chỉ số: số phiên sử dụng mô hình, số phiên có click/cart/order, tỷ lệ chuyển đổi click qua order. Trường \textbf{model\_used} được API service nhúng trực tiếp vào tải trọng (payload) Kafka và Spark phân tích (parse) từ JSON - khác với cách tiếp cận cũ là join với bảng \textbf{predictions\_log} gây ra hai vấn đề: ra tình trạng tranh chấp (race condition) (Streaming xử lý sự kiện trước khi API ghi log) và quét toàn bộ bảng (full table scan) mỗi lô nhỏ (micro-batch).
+    \item[\textbf{E.}] \textbf{Thống kê phễu theo mô hình:} Theo dõi hiệu suất của từng mô hình gợi ý thông qua các chỉ số: số phiên sử dụng mô hình, số phiên có tương tác, tỷ lệ chuyển đổi. Thông tin mô hình được dịch vụ API nhúng trực tiếp vào tải trọng Kafka và Spark phân tích từ JSON - khác với cách tiếp cận cũ là kết hợp với bảng log dự đoán gây ra hai vấn đề: tình trạng tranh chấp (xử lý sự kiện trước khi ghi log) và quét toàn bộ bảng mỗi lô nhỏ.
 
-    \item[\textbf{F.}] \textbf{Phân loại phiên (\textbf{stats\_sessions}):} Phân loại mỗi phiên thành ba nhóm dựa trên hành vi:
-\begin{itemize}
-    \item \textbf{buyer}: phiên có ít nhất một order.
-    \item \textbf{cart\_abandoner}: phiên có cart nhưng không có order.
-    \item \textbf{browse\_only}: phiên chỉ có click.
-\end{itemize} Với mỗi nhóm, pipeline tính toán số phiên, độ dài trung bình, thời gian trung bình và tỷ lệ phần trăm trên tổng số phiên. Tỷ lệ phần trăm được tính trong Python (thay vì SQL) để tránh tình trạng tranh chấp (race condition) khi UPSERT đồng thời nhiều dòng.
+    \item[\textbf{F.}] \textbf{Phân loại phiên:} Phân loại mỗi phiên thành ba nhóm dựa trên hành vi: người mua hàng (có ít nhất một lần mua), bỏ giỏ hàng (có thêm vào giỏ nhưng không mua), và chỉ duyệt (chỉ nhấn). Với mỗi nhóm, đường ống tính toán số phiên, độ dài trung bình, thời gian trung bình và tỷ lệ phần trăm trên tổng số phiên.
 \end{enumerate}
 
-Tất cả sáu pipeline ghi kết quả vào PostgreSQL thông qua JDBC connector với chế độ batch và điểm phục hồi (checkpoint) để đảm bảo khả năng phục hồi cùng ngữ nghĩa chính xác-một-lần (exactly-once).
+Tất cả sáu đường ống ghi kết quả vào PostgreSQL với chế độ lô và điểm phục hồi để đảm bảo khả năng phục hồi cùng ngữ nghĩa xử lý chính xác một lần.
 
-\subsubsection{Xử lý batch}
-Bên cạnh xử lý streaming, hệ thống có các tác vụ batch chạy một lần thông qua container \textbf{setup-jobs} khi khởi tạo:
+\subsubsection{Xử lý lô}
+Bên cạnh xử lý streaming liên tục, hệ thống có các tác vụ lô chạy một lần thông qua container khi khởi tạo:
 
 \begin{itemize}
-    \item \textbf{create\_kafka\_topic.py}: Tạo topic \textbf{user-events} trên Kafka với cấu hình partition và replication factor phù hợp.
-    \item \textbf{funnel\_analysis.py}: Đọc dữ liệu lịch sử từ file \textbf{train\_sessions.parquet} của bộ dữ liệu OTTO trên Kaggle, tính toán tỷ lệ chuyển đổi funnel toàn cục, phân loại phiên và thống kê funnel theo mô hình. Dữ liệu được ghi vào các bảng \textbf{funnel\_stats}, \textbf{stats\_sessions}, \textbf{advanced\_funnel\_stats} với chế độ ghi đè (overwrite).
-    \item \textbf{seed\_popular\_items.py}: Tính toán top 100 sản phẩm phổ biến nhất theo từng loại sự kiện (clicks, carts, orders) từ dữ liệu lịch sử, ghi vào bảng \textbf{popular\_items}. Dữ liệu này được sử dụng cho chiến lược gợi ý nguội (cold start) khi phiên có ít hơn 3 sự kiện
+    \item \textbf{Tạo topic Kafka:} Tạo topic trên Kafka với cấu hình phân vùng và hệ số sao chép phù hợp.
+    \item \textbf{Phân tích phễu:} Đọc dữ liệu lịch sử từ file dữ liệu OTTO trên Kaggle, tính toán tỷ lệ chuyển đổi phễu toàn cục, phân loại phiên và thống kê phễu theo mô hình. Dữ liệu được ghi vào các bảng phân tích với chế độ ghi đè.
+    \item \textbf{Khởi tạo sản phẩm phổ biến:} Tính toán 100 sản phẩm phổ biến nhất theo từng loại sự kiện từ dữ liệu lịch sử, ghi vào bảng sản phẩm phổ biến. Dữ liệu này được sử dụng cho chiến lược gợi ý nguội khi phiên có ít hơn 3 sự kiện.
 \end{itemize}
 
-Các batch job sử dụng chế độ ghi đè (overwrite) để đảm bảo dữ liệu sạch mỗi lần chạy. Dữ liệu đầu ra được lưu trực tiếp vào PostgreSQL.
+Các tác vụ lô sử dụng chế độ ghi đè để đảm bảo dữ liệu sạch mỗi lần chạy. Dữ liệu đầu ra được lưu trực tiếp vào PostgreSQL.
 
 \subsubsection{Lưu trữ dữ liệu}
 Hệ thống sử dụng PostgreSQL làm kho dữ liệu phân tích chính với 12 bảng được tổ chức theo các nhóm chức năng:
 
 \begin{itemize}
-    \item \textbf{Dữ liệu sự kiện thô:} \textbf{collected\_events} lưu toàn bộ sự kiện để phục vụ retrain và rebuild matrices sau này. Bảng này có index trên \textbf{session\_id}.
-    \item \textbf{Dữ liệu dự đoán:} \textbf{predictions\_log} ghi lại mỗi lần dự đoán gồm model sử dụng, độ dài phiên, danh sách sản phẩm đề xuất, và thời gian xử lý (latency). \textbf{online\_hits} ghi lại kết quả kiểm tra độ chính xác: sản phẩm người dùng tương tác có nằm trong danh sách gợi ý không. \textbf{online\_metrics} lưu các metric đánh giá như Recall@K, NDCG@K, MRR@K theo từng sự kiện phiên.
-    \item \textbf{Dữ liệu phân tích streaming:} \textbf{stats\_hourly} (thống kê theo window 1 phút), \textbf{stats\_items} (hiệu suất từng sản phẩm), \textbf{stats\_sessions} (phân loại phiên), \textbf{popular\_items} (độ phổ biến theo thời gian thực), \textbf{advanced\_funnel\_stats} (funnel theo mô hình).
-    \item \textbf{Dữ liệu phân tích batch:} \textbf{funnel\_stats} (tỷ lệ chuyển đổi toàn cục từ batch job).
-    \item \textbf{Giám sát:} \textbf{anomaly\_logs} (phát hiện phiên bất thường), \textbf{spark\_metrics} (hiệu suất Spark gồm input rows per second, process rows per second, batch duration).
+    \item \textbf{Dữ liệu sự kiện thô:} Lưu toàn bộ sự kiện để phục vụ huấn luyện lại và xây dựng lại ma trận sau này.
+    \item \textbf{Dữ liệu dự đoán:} Ghi lại mỗi lần dự đoán gồm mô hình sử dụng, độ dài phiên, danh sách sản phẩm đề xuất, và thời gian xử lý. Ngoài ra còn lưu kết quả kiểm tra độ chính xác (sản phẩm người dùng tương tác có nằm trong danh sách gợi ý không) và các chỉ số đánh giá theo từng sự kiện phiên.
+    \item \textbf{Dữ liệu phân tích streaming:} Thống kê theo cửa sổ thời gian, hiệu suất từng sản phẩm, phân loại phiên, độ phổ biến theo thời gian thực, phễu theo mô hình.
+    \item \textbf{Dữ liệu phân tích lô:} Tỷ lệ chuyển đổi toàn cục từ tác vụ lô.
+    \item \textbf{Giám sát:} Phát hiện phiên bất thường, hiệu suất Spark (tốc độ xử lý, thời gian lô).
 \end{itemize}
 
-Cơ sở dữ liệu áp dụng chính sách lưu trữ (retention period): dữ liệu phân tích và log sự kiện thô được giữ 30 ngày, xóa bởi container cleanup chạy định kỳ.
+Cơ sở dữ liệu áp dụng chính sách lưu trữ: dữ liệu phân tích và log sự kiện thô được giữ 30 ngày, xóa bởi container dọn dẹp chạy định kỳ.
 
-Redis được sử dụng cho ba mục đích:
+Redis được sử dụng cho bốn mục đích chính:
 \begin{itemize}
-    \item \textbf{Lưu phiên (session storage):} Danh sách sự kiện theo thứ tự thời gian cho mỗi phiên, với TTL 30 phút. Cấu trúc List của Redis với thao tác RPUSH/LRANGE phù hợp tự nhiên cho việc ghi và đọc chuỗi sự kiện.
-    \item \textbf{Bộ nhớ đệm kết quả gợi ý (recommendation cache):} Kết quả gợi ý của mỗi phiên được lưu với TTL 30 phút, tránh tính toán lại cho mỗi sự kiện.
-    \item \textbf{Hàng đợi bộ đệm (buffer):} API service đẩy dữ liệu vào bốn bộ đệm (buffer) Redis và tác vụ nền đẩy (flush) định kỳ vào PostgreSQL. Mỗi buffer có TTL 1 giờ và giới hạn tối đa 10000 bản ghi, hoạt động như cơ chế bảo vệ ngắt mạch (circuit breaker) khi PostgreSQL gặp sự cố.
+    \item \textbf{Lưu phiên:} Danh sách sự kiện theo thứ tự thời gian cho mỗi phiên.
+    \item \textbf{Bộ nhớ đệm kết quả gợi ý:} Kết quả gợi ý của mỗi phiên được lưu để luồng đọc trả về nhanh.
+    \item \textbf{Ma trận covisitation:} Ma trận liên kết sản phẩm được preload từ file Parquet vào Redis.
+    \item \textbf{Hàng đợi bộ đệm:} Đệm dữ liệu trước khi ghi vào PostgreSQL.
 \end{itemize}
 
 \section{Triển khai}
-Toàn bộ hệ thống được đóng gói và triển khai thông qua Docker và Docker Compose. Mỗi thành phần (API, Spark Streaming, Dashboard, Setup Jobs, Kafka, PostgreSQL, Redis, Kafka UI) được đóng thành một container riêng biệt. Các container chạy trên cùng một mạng Docker internal, giao tiếp qua tên service thay vì địa chỉ IP.
+Toàn bộ hệ thống được đóng gói bằng Docker và Docker Compose, mỗi thành phần chạy trên một container riêng biệt và giao tiếp qua mạng nội bộ.
 
-Hệ thống sử dụng sáu Dockerfile chính:
-\begin{itemize}
-    \item \textbf{Dockerfile}: Image nền chứa Java và Python 3.12, dùng cho setup-jobs và các container cần Java runtime.
-    \item \textbf{Dockerfile.api}: Image cho FastAPI service, nhẹ hơn vì không cần Java.
-    \item \textbf{Dockerfile.streaming}: Image cho Spark Streaming, dựa trên Alpine Linux, cài đặt Python và Java 21.
-    \item \textbf{Dockerfile.dashboard}: Image cho Streamlit dashboard.
-    \item \textbf{Dockerfile.setup}: Image cho batch job setup, dựa trên Alpine với Java và PySpark.
-    \item \textbf{Dockerfile.spark-worker}: Image cho worker Spark dựa trên \textbf{apache/spark:3.5.0}, cài đặt Python 3, PySpark và psycopg2-binary để chạy executor Python.
-\end{itemize}
+Spark có thể chạy ở hai chế độ: cục bộ (local), Spark chạy trực tiếp trên container xử lý streaming mà không cần cụm; hoặc cụm (cluster), tác vụ được gửi lên spark-master và phân bổ cho các tác vụ nền node để xử lý song song. Mỗi tác vụ nền được cấp tài nguyên CPU và RAM thông qua cơ chế giới hạn tài nguyên của container.
 
-Docker Compose định nghĩa ba file cấu hình:
-\begin{itemize}
-    \item \textbf{docker-compose.yml}: Định nghĩa toàn bộ mười một service, bao gồm cụm Spark (spark-master, spark-worker-1, spark-worker-2), volume cho dữ liệu bền vững (datasets, postgres data, kafka data, spark checkpoints), mạng nội bộ, và biến môi trường. Worker sử dụng image \textbf{vucongtuanduong/otto-spark-worker:latest} được build từ \textbf{Dockerfile.spark-worker} để đảm bảo môi trường Python cho PySpark executor.
-    \item \textbf{docker-compose.dev.yml}: Mở rộng cho môi trường phát triển, thêm build context và volume mounts để hỗ trợ hot-reload.
-    \item \textbf{docker-compose-hub.yml}: Biến thể cho triển khai production, kéo image từ Docker Hub thay vì build local.
-\end{itemize}
-
-Spark có thể chạy ở hai chế độ được cấu hình qua biến môi trường \textbf{SPARK\_MASTER\_URL}:
-\begin{itemize}
-    \item \textbf{local[*]}: Chạy trên chính container spark-streaming (chế độ mặc định cho phát triển), không cần cụm Spark.
-    \item \textbf{spark://spark-master:7077}: Gửi tác vụ (job) lên cụm Spark, các executor chạy trên worker container.
-\end{itemize}
-
-Mỗi worker được cấu hình 4 GB RAM và 2 CPU, giới hạn bởi container resource. Biến môi trường \textbf{PYSPARK\_PYTHON=/usr/bin/python3} được thiết lập trên tất cả worker và spark-streaming container để đảm bảo driver và executor dùng chung một đường dẫn Python.
-
-Cấu hình hệ thống được quản lý qua hai kênh:
-\begin{itemize}
-    \item File \textbf{config/config.yml}: Lưu cấu hình ứng dụng (Kafka topics, Spark settings, tên ứng dụng).
-    \item File \textbf{.env}: Lưu biến môi trường (PostgreSQL host/user/password/database, Redis host, Kafka bootstrap servers, Docker Hub username/tag, URL server host mô hình).
-\end{itemize}
-
-Hệ thống có thể mở rộng bằng cách tăng số partition Kafka hoặc điều chỉnh tài nguyên Spark thông qua biến môi trường Spark submit.
 
 \section{Kết quả thực nghiệm}
 
@@ -254,7 +213,7 @@ Các ngưỡng SLA cụ thể cho từng KPI:
         \item WARN: $<$0,8
         \item FAIL: $\ge$1,0
     \end{itemize}
-    \item Thời gian batch Spark (Spark batch duration):
+    \item Thời gian lô Spark (Spark batch duration):
     \begin{itemize}
         \item OK: $<$5 giây
         \item WARN: $<$8 giây
@@ -274,69 +233,67 @@ Các ngưỡng SLA cụ thể cho từng KPI:
     \end{itemize}
 \end{itemize}
 
-\subsubsection{Thông lượng Kafka (Kafka throughput)}
-Đánh giá Kafka sử dụng công cụ \textbf{kafka-producer-perf-test.sh} với 200000 bản ghi, kích thước 1KB mỗi bản ghi, cấu hình \textbf{acks=1}:
+\subsubsection{Thông lượng Kafka}
+Đánh giá Kafka sử dụng công cụ \textbf{kafka-producer-perf-test.sh} với 200.000 bản ghi, kích thước 1KB mỗi bản ghi:
 \begin{itemize}
-    \item Thông lượng (throughput): 12353 bản ghi/giây (12,06 MB/giây).
-    \item Độ trễ trung bình: 2287 ms.
-    \item Độ trễ P95: 3473 ms.
-    \item Độ trễ tối đa: 3578 ms.
+    \item Thông lượng: 11.554 bản ghi/giây (11,28 MB/giây).
+    \item Độ trễ trung bình: 2417 ms.
+    \item Độ trễ P50: 2159 ms.
+    \item Độ trễ P95: 4687 ms.
+    \item Độ trễ tối đa: 5293 ms.
 \end{itemize}
-So với SLA: thông lượng 12353 bản ghi/giây rất xa ngưỡng OK ($>$200K), đạt FAIL. Nguyên nhân là tài nguyên CPU giới hạn trong container và tranh chấp I/O (I/O contention) giữa Kafka log và điểm phục hồi (checkpoint) Spark trên cùng ổ đĩa. Độ trễ P95 3473 ms ở mức WARN (dưới ngưỡng FAIL 5 giây), cải thiện 18\% so với lần đo trước (4254 ms) nhờ giảm tải CPU từ Spark khi điều chỉnh cấu hình (shuffle partitions, executor cores).
+Thông lượng 11.554 bản ghi/giây ở mức FAIL, rất xa ngưỡng OK ($>$200K). Nguyên nhân chính là tài nguyên CPU giới hạn trên máy chủ và tranh chấp nhập/xuất (I/O) giữa nhật ký Kafka (Kafka log) với điểm phục hồi (checkpoint) Spark trên cùng ổ đĩa. Độ trễ P95 4687 ms ở mức WARN (dưới ngưỡng FAIL 5 giây), cho thấy Kafka vẫn đáp ứng được độ trễ chấp nhận được dù thông lượng chưa cao.
 
-\subsubsection{Kiểm tra tải API (API load test)}
-Kiểm tra tải API sử dụng k6 với kịch bản tăng tải ba giai đoạn (10, 50, 100 người dùng đồng thời, mỗi giai đoạn 3 phút), thời gian suy nghĩ (think time) 300-1300 ms giữa các yêu cầu:
+\subsubsection{Kiểm tra tải API}
+Kiểm tra tải API sử dụng k6 với kịch bản tăng tải ba giai đoạn (10, 50, 80 người dùng đồng thời, mỗi giai đoạn 3 phút):
 \begin{itemize}
-    \item Độ trễ trung vị (P50): 102 ms.
-    \item Độ trễ trung bình: 1401 ms.
-    \item Độ trễ P95: 5322 ms.
-    \item Thông lượng: 22,2 yêu cầu/giây.
-    \item Tỷ lệ lỗi (error rate): 0,76\%.
+    \item Độ trễ trung vị (P50): 212 ms.
+    \item Độ trễ trung bình: 773 ms.
+    \item Độ trễ P95: 2889 ms.
+    \item Độ trễ tối đa: 10.002 ms.
+    \item Thông lượng: 30,9 yêu cầu/giây.
+    \item Tỷ lệ lỗi: 0,28\%.
 \end{itemize}
-So với SLA: độ trễ P95 5322 ms vượt ngưỡng FAIL ($>$1 giây). Nguyên nhân chính là gọi API đến máy chủ (server) host mô hình quá thời gian (timeout) 2 giây - khi máy chủ mô hình hết thời gian chờ, API phải chuyển sang dự phòng (fallback), kéo độ trễ đuôi (tail latency) lên hàng giây. Trung vị chỉ 102 ms cho thấy hầu hết yêu cầu nhanh, nhưng độ trễ đuôi (tail latency) (P90-P95) bị ảnh hưởng nặng bởi bộ ngắt mạch (circuit breaker) mở. Tỷ lệ lỗi 0,76\% ở mức WARN (dưới ngưỡng FAIL 5\%), tăng so với 0,0\% ở lần đo trước do một số yêu cầu bị quá thời gian (timeout) khi fallback cũng thất bại.
+Độ trễ P95 2889 ms ở mức FAIL ($>$1 giây). Nguyên nhân là các yêu cầu (request) đầu tiên của mỗi phiên phải chờ tiến trình nền (worker) tính toán gợi ý từ đồng xuất hiện (covisitation) khi bộ nhớ đệm (cache) Redis trống, dẫn đến một số yêu cầu có độ trễ cao. Tuy nhiên, độ trễ trung vị chỉ 212 ms cho thấy phần lớn yêu cầu được phục vụ nhanh từ bộ nhớ đệm. Tỷ lệ lỗi 0,28\% ở mức WARN (dưới ngưỡng FAIL 5\%), với 41 yêu cầu lỗi trên tổng số 14.829 - chủ yếu xảy ra ở giai đoạn tải đỉnh. Thông lượng 30,9 yêu cầu/giây cho thấy API đáp ứng tốt dưới áp lực 80 người dùng đồng thời.
 
-\subsubsection{Độ ổn định Spark Streaming (Spark Streaming stability)}
-Độ ổn định của Spark Streaming được đo bằng tỷ lệ ổn định (stability = thời gian xử lý / khoảng batch). Với khoảng kích hoạt (trigger interval) 10 giây và maxOffsetsPerTrigger=1000:
+\subsubsection{Độ ổn định Spark Streaming}
+Spark Streaming chạy ở chế độ cụm (cluster mode) với hai nút công nhân (worker node), khoảng kích hoạt (trigger interval) 10 giây:
 \begin{itemize}
-    \item Số batch xử lý: 23 batch.
-    \item Thời gian batch trung bình: 14,8 giây.
-    \item Thời gian batch tối đa: 35,4 giây (batch đầu do bắt kịp (catch-up)).
-    \item Tốc độ xử lý trung bình: 690 dòng/giây, đạt đỉnh 1112 dòng/giây khi ổn định.
+    \item Số lô (batch) xử lý: 25 lô.
+    \item Thời gian lô trung bình: 10,1 giây.
+    \item Thời gian lô ổn định (batches 4-20): 7,3 giây.
+    \item Thời gian lô tối thiểu: 5,2 giây.
+    \item Thời gian lô tối đa: 25,2 giây (lô đầu do bắt kịp).
+    \item Tốc độ xử lý ổn định: 1.396 dòng/giây.
 \end{itemize}
-Tỷ lệ ổn định trung bình $\approx$1,48 (14,8s / 10s), ở mức FAIL ($>$1,0). Batch bắt kịp (catch-up) đầu tiên mất 35,4 giây để xử lý dữ liệu tồn từ Kafka. Sau khi ổn định, thời gian batch dao động 9-13 giây. Tốc độ xử lý tăng dần từ 282 dòng/giây (batch đầu) lên 1112 dòng/giây (batch 20), cho thấy hiệu quả của việc điều chỉnh cấu hình Spark (shuffle partitions=24, executor.cores=2). Spark chạy ở chế độ local (trên chính container spark-streaming), hai worker container không tham gia xử lý.
+Thời gian lô trung bình 10,1 giây ở mức FAIL ($>$10 giây). Tuy nhiên, sau giai đoạn bắt kịp dữ liệu tồn đọng, các lô ổn định (batches 4-20) duy trì thời gian xử lý 7,3 giây - ở mức WARN (dưới 8 giây). Tốc độ xử lý ổn định $\sim$1.400 dòng/giây vượt xa tốc độ đầu vào (input rate) $\sim$500 dòng/giây, chứng tỏ Spark đủ khả năng theo kịp luồng dữ liệu thời gian thực. Các lô cuối có thời gian xử lý (duration) cao hơn do phản áp (backpressure) khi nguồn dữ liệu cạn dần.
 
-\subsubsection{Độ trễ đầu cuối (End-to-end latency)}
+\subsubsection{Độ trễ đầu cuối}
 Độ trễ đầu cuối đo thời gian từ lúc API nhận sự kiện đến khi dữ liệu xuất hiện trong PostgreSQL:
 \begin{itemize}
-    \item Độ trễ P50: 255 giây.
-    \item Độ trễ P95: 428 giây (7 phút).
+    \item Độ trễ P50: 201 giây.
+    \item Độ trễ P95: 409 giây ($\sim$6,8 phút).
 \end{itemize}
-So với SLA: P50 255 giây và P95 428 giây đều vượt ngưỡng FAIL ($>$60 giây và $>$5 phút). Nguyên nhân là Spark xử lý chậm hơn tốc độ đầu vào do maxOffsetsPerTrigger=1000 giới hạn số bản ghi mỗi batch, dù tốc độ xử lý đã cải thiện so với lần đo trước.
+Cả hai chỉ số đều ở mức FAIL. Nguyên nhân chính là Spark Streaming phải ghi kết quả vào PostgreSQL qua khoảng lô (batch interval) 10 giây với chi phí điểm phục hồi (checkpoint overhead), kết hợp với độ trễ tích lũy từ bộ sản xuất Kafka (Kafka producer) và xử lý Spark (Spark processing). Xử lý Spark là nút thắt cổ chai (bottleneck) chính trong đường ống (pipeline).
 
 \subsubsection{Nhận xét}
-Kết quả benchmark cho thấy hệ thống có những điểm đạt yêu cầu và những điểm cần cải thiện:
+Kết quả đo hiệu năng (benchmark) v6 đánh giá đường ống OTTO Recommender (pipeline) trên bốn nhóm chỉ số:
 
 \begin{itemize}
-    \item \textbf{Thông lượng Kafka (FAIL):} 12353 bản ghi/giây, rất xa ngưỡng $>$200K. Nguyên nhân chính là tài nguyên CPU giới hạn (4 lõi) trong môi trường container và tranh chấp I/O (I/O contention) giữa Kafka log và điểm phục hồi (checkpoint) Spark trên cùng ổ đĩa.
+    \item \textbf{API (FAIL):} Độ trễ P95 2.889 ms vượt ngưỡng FAIL ($>$1 giây). Tuy nhiên, P50 chỉ 212 ms và tỷ lệ lỗi 0,28\% ở mức WARN cho thấy kiến trúc luồng đọc/luồng ghi (Read-Path/Write-Path) hoạt động hiệu quả với đa số yêu cầu. Các yêu cầu có độ trễ cao tập trung ở đầu phiên khi bộ nhớ đệm (cache) Redis chưa có dữ liệu. Thông lượng 30,9 yêu cầu/giây với 80 người dùng đồng thời (VUs) là kết quả tích cực.
 
-    \item \textbf{Độ trễ P95 Kafka (WARN):} 3473 ms, cải thiện 18\% so với lần đo trước (4254 ms) nhờ điều chỉnh cấu hình Spark (shuffle partitions, executor cores) giảm tải CPU. Dù vậy, vẫn cao hơn nhiều so với mức OK dưới 500 ms.
+    \item \textbf{Kafka (FAIL - thông lượng, WARN - độ trễ):} Thông lượng 11.554 bản ghi/giây ở mức FAIL do tài nguyên CPU giới hạn và tranh chấp nhập/xuất (I/O) ổ đĩa. Độ trễ P95 4.687 ms ở mức WARN, cho thấy Kafka vẫn duy trì độ trễ chấp nhận được dù qua tải.
 
-    \item \textbf{Độ trễ P95 API (FAIL):} 5322 ms, vượt ngưỡng $>$1 giây. Nguyên nhân chính là quá thời gian (timeout) khi gọi API máy chủ (server) mô hình (2 giây) - mỗi lần quá thời gian buộc API phải chuyển sang dự phòng (fallback), kéo độ trễ đuôi (tail latency) lên hàng giây. Trung vị chỉ 102 ms chứng tỏ hầu hết yêu cầu được xử lý nhanh, nhưng phân phối độ trễ có đuôi rất dài (tail latency): gap giữa P50 (102 ms) và P95 (5322 ms) lên tới 52 lần.
+    \item \textbf{Spark Streaming (FAIL - trung bình, WARN - ổn định):} Thời gian lô trung bình 10,1 giây ở mức FAIL, nhưng trạng thái ổn định (steady-state) 7,3 giây ở mức WARN. Tốc độ xử lý ổn định $\sim$1.400 dòng/giây vượt tốc độ đầu vào (input rate), chứng tỏ Spark đủ năng lực xử lý thời gian thực (real-time) nếu được cấp đủ tài nguyên.
 
-    \item \textbf{Tỷ lệ lỗi API (WARN):} 0,76\%, tăng từ 0,0\% ở lần đo trước. Một số yêu cầu bị quá thời gian (timeout) ngay cả khi fallback do tải cao. Dù vẫn dưới ngưỡng FAIL 5\%, đây là tín hiệu cần theo dõi.
-
-    \item \textbf{Độ ổn định Spark (FAIL):} Tỷ lệ ổn định $\approx$1,48 (thời gian batch 14,8 giây trên khoảng kích hoạt (trigger interval) 10 giây), vượt ngưỡng FAIL ($>$1,0). Batch đầu mất 35,4 giây do bắt kịp (catch-up) lượng dữ liệu tồn từ Kafka. Sau đó, các batch dao động 9-13 giây, tốc độ xử lý tăng từ 282 lên 1112 dòng/giây nhờ cấu hình Spark được tối ưu (shuffle partitions=24, executor.cores=2, cores.max=4). Spark chạy ở chế độ local (trên spark-streaming), hai worker container (spark-worker-1, spark-worker-2) không tham gia xử lý.
-
-    \item \textbf{Thời gian batch Spark (FAIL):} Trung bình 14,8 giây, vượt ngưỡng $>$10 giây. Tuy nhiên, các batch sau ổn định ở 9-13 giây, cho thấy cải thiện so với lần đo trước nhờ điều chỉnh tài nguyên executor.
-
-    \item \textbf{Độ trễ đầu cuối (FAIL):} P50 255 giây và P95 428 giây, tương đương lần đo trước. Nguyên nhân chính là Spark xử lý chậm hơn tốc độ đầu vào, dù tốc độ xử lý dòng/giây đã cải thiện nhờ cấu hình.
+    \item \textbf{Độ trễ đầu cuối (FAIL):} P50 201 giây và P95 409 giây, vượt xa ngưỡng FAIL. Đây là hệ quả tích lũy từ toàn bộ đường ống, với Spark streaming là nút thắt chính.
 \end{itemize}
 
-Tóm lại, các KPI đều ở mức FAIL hoặc WARN, chỉ ra ba nút thắt cổ chai (bottleneck) chính:
-\begin{itemize}
-    \item Tài nguyên CPU và tranh chấp I/O (I/O contention) hạn chế thông lượng Kafka và Spark.
-    \item Quá thời gian (timeout) gọi máy chủ (server) mô hình kéo độ trễ API.
-    \item Spark chưa chạy ở chế độ cụm (cluster mode) - worker container không tham gia xử lý, toàn bộ tác vụ (task) chạy trên spark-streaming container.
-\end{itemize}
+Tóm lại, kiến trúc luồng đọc/luồng ghi giúp API phục vụ đa số yêu cầu nhanh từ bộ nhớ đệm với P50 212 ms, nhưng các chỉ số đường ống còn ở mức FAIL. Hướng cải thiện chính gồm:
+\begin{enumerate}
+    \item Tách riêng ổ đĩa cho nhật ký Kafka và điểm phục hồi Spark để giảm tranh chấp nhập/xuất.
+    \item Làm nóng bộ nhớ đệm (cache warming) cho phiên mới để giảm P95 API.
+    \item Tăng tài nguyên CPU/RAM cho các nút công nhân (worker node) Spark.
+\end{enumerate}
 
 \end{document}
