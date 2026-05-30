@@ -364,14 +364,7 @@ streamlit run streamlit_app.py
 
 ### Training Mô Hình
 
-```bash
-python run_mba_training.py \
-  --datadir ./data \
-  --folder ./output \
-  --dataset otto \
-  --model MF \
-  --lambda0 1e-4
-```
+Các notebook về training mô hình (SaSRec, TRON, Candidate Rerank và phương pháp đề xuất) có sẵn trong thư mục `notebooks/`.
 
 ### Xử Lý Streaming
 
