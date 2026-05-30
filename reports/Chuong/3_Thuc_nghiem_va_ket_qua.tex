@@ -45,7 +45,7 @@ Hệ thống gồm mười một container được tổ chức như sau:
 
 Spark được triển khai ở chế độ cụm (cluster mode) với một nút điều phối (spark-master) và hai nút công nhân (spark-worker). spark-master chịu trách nhiệm điều phối tác vụ (job) và phân bổ tài nguyên cho các executor. spark-streaming kết nối tới spark-master để gửi tác vụ (job) xử lý streaming; các executor chạy trên worker container nhận tác vụ (task) từ master để xử lý dữ liệu Kafka. Dữ liệu đầu vào (datasets) và điểm phục hồi (checkpoint) được chia sẻ giữa các worker qua volume Docker để đảm bảo mọi executor có thể truy cập cùng một dữ liệu.
 
-Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đồ dưới đây (Hình \ref{fig:architecture}). Khi người dùng gửi một tương tác (click, thêm vào giỏ hàng, mua hàng), sự kiện được gửi đến API service qua HTTP POST. API service lưu sự kiện vào Redis để quản lý phiên, xuất bản sự kiện lên Kafka để xử lý phân tích bất đồng bộ, và ghi dữ liệu thô vào PostgreSQL. Đồng thời, API service thực thi luồng gợi ý bằng cách gọi API đến phía máy chủ (server) đang lưu trữ (host) mô hình hệ gợi ý để trả về danh sách sản phẩm đề xuất. Về phía xử lý luồng, Spark Streaming gửi tác vụ (job) từ Kafka lên cụm Spark (spark-master + spark-worker) để đọc các sự kiện từ Kafka theo cơ chế lô nhỏ (micro-batch), thực hiện sáu pipeline phân tích song song, và ghi kết quả vào các bảng PostgreSQL tương ứng. Bảng điều khiển (Dashboard) Streamlit gọi API cho phía máy chủ (server) và phía máy chủ sẽ truy vấn dữ liệu từ PostgreSQL và trả về phản hồi để Streamlit hiển thị số liệu giám sát.
+Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đồ dưới đây (Hình \ref{fig:architecture}). Khi người dùng gửi một tương tác (click, thêm vào giỏ hàng, mua hàng), sự kiện được gửi đến API service qua HTTP POST. API service lưu sự kiện vào Redis để quản lý phiên, sau đó thực thi luồng gợi ý theo chiến lược Read-Path: kiểm tra bộ nhớ đệm Redis trước, nếu có thì trả về ngay lập tức; nếu chưa có thì truy vấn ma trận covisitation từ Redis để tạo gợi ý tức thì. Đồng thời, nếu phiên đủ dài, API service đẩy task tái tính toán vào hàng đợi nền để worker gọi mô hình SASRec từ xa và lưu kết quả mới vào cache. Sự kiện cũng được xuất bản lên Kafka để Spark Streaming xử lý phân tích bất đồng bộ và ghi kết quả vào các bảng PostgreSQL. Bảng điều khiển (Dashboard) Streamlit gọi API để hiển thị số liệu giám sát.
 
 \begin{figure}[H]
 \centering
@@ -68,18 +68,33 @@ Khi nhận được sự kiện, API service thực hiện các bước sau:
 
 \begin{enumerate}
     \item \textbf{Lưu vào Redis:} Sự kiện được thêm vào cuối danh sách (list) của phiên tương ứng trong Redis. Khóa có dạng phiên và được thiết lập thời gian sống (TTL) là 30 phút. Redis List là cấu trúc dữ liệu phù hợp cho việc lưu chuỗi sự kiện theo thứ tự thời gian, hỗ trợ thao tác thêm ở cuối và đọc toàn bộ với độ phức tạp O(1). Thao tác này trả về độ dài hiện tại của phiên - tham số quan trọng cho bước định tuyến mô hình.
-    \item \textbf{Xuất bản lên Kafka:} Sự kiện được gửi bất đồng bộ (background task) lên topic của Kafka với thông tin chi tiết bao gồm mã phiên, mã sản phẩm, loại tương tác, thời gian và mô hình được sử dụng. Việc gửi bất đồng bộ đảm bảo API không bị chặn bởi thao tác I/O của Kafka, giữ thời gian phản hồi ở mức thấp.
-    \item \textbf{Ghi vào PostgreSQL:} Sự kiện thô được ghi vào bảng \textbf{collected\_events} thông qua cơ chế bộ đệm (buffer). Thay vì ghi từng sự kiện một, API service đẩy sự kiện vào hàng đợi bộ đệm (buffer) Redis và một tác vụ nền (background task) chạy định kỳ mỗi 5 giây sẽ đẩy (flush) toàn bộ bộ đệm vào PostgreSQL theo lô (batch insert) với kích thước tối đa 50 bản ghi mỗi lần. Cơ chế này giảm tải kết nối database và tránh tạo quá nhiều transaction nhỏ lẻ.
-    \item \textbf{Thực thi gợi ý:} Luồng gợi ý được kích hoạt dựa trên hai điều kiện:
+    \item \textbf{Tra cứu gợi ý từ Redis (Read-Path):} Đây là bước then chốt trong kiến trúc Read-Path. API service kiểm tra bộ nhớ đệm Redis trước:
 \begin{itemize}
-    \item Độ dài phiên hiện tại chia hết cho 3.
-    \item Loại sự kiện là carts hoặc orders.
+    \item \textbf{Cache HIT:} Nếu đã có kết quả gợi ý được tính toán trước đó, trả về ngay lập tức cho người dùng. Model được sử dụng là ``cached''. Đây là trường hợp phổ biến nhất, đảm bảo độ trễ phản hồi ở mức miligây.
+    \item \textbf{Cache MISS:} Nếu chưa có, API service truy vấn ma trận covisitation từ Redis để lấy danh sách sản phẩm liên quan cho từng sản phẩm trong phiên, sau đó tổng hợp và xếp hạng theo điểm số. Toàn bộ quy trình chỉ cần một round-trip đến Redis thông qua pipeline, đảm bảo độ trễ thấp.
 \end{itemize}
-Nếu không thỏa điều kiện, hệ thống trả về kết quả gợi ý đã được lưu trong bộ nhớ đệm Redis (cache). Điều này giúp giảm 66\% số lần tính toán gợi ý mà không ảnh hưởng đáng kể đến trải nghiệm người dùng, vì sau 3 sự kiện kết quả gợi ý mới cần được cập nhật. Khi có sự kiện carts hoặc orders, kết quả luôn được tính toán lại ngay lập tức vì đây là các tín hiệu có mức độ quan tâm (intent) cao.
-    \item \textbf{Lưu kết quả vào bộ nhớ đệm:} Kết quả gợi ý được lưu vào Redis với khóa \textbf{recs:\{session\_id\}} và TTL là 30 phút. Lần truy vấn tiếp theo trong cùng phiên sẽ đọc từ cache thay vì tính toán lại.
-    \item \textbf{Ghi log dự đoán:} Thông tin về lần dự đoán (model được sử dụng, độ dài phiên, danh sách sản phẩm đề xuất, thời gian xử lý) được ghi vào bảng \textbf{predictions\_log} thông qua cơ chế bộ đệm (buffer) tương tự.
-    \item \textbf{Theo dõi độ chính xác:} Nếu sự kiện là carts hoặc orders, hệ thống kiểm tra xem sản phẩm người dùng tương tác có nằm trong danh sách gợi ý vừa trả về không, và ghi kết quả vào bảng \textbf{online\_hits} để tính toán tỷ lệ trúng (hit rate).
+Luồng Read-Path được thiết kế để luôn trả về kết quả cho người dùng ngay lập tức, không chờ đợi bất kỳ mô hình nào. Điều này giúp duy trì thời gian phản hồi ổn định bất kể trạng thái của hệ thống gợi ý.
+    \item \textbf{Đẩy task tái tính toán nền (Write-Path):} Nếu độ dài phiên lớn hơn hoặc bằng 5 sự kiện, API service đẩy thông tin phiên vào hàng đợi \textbf{background\_queue} để worker nền thực thi. Tác vụ này chạy bất đồng bộ, không chặn luồng phản hồi chính. Các phiên ngắn (dưới 5 sự kiện) không cần tái tính toán vì covisitation đã đủ tốt.
+    \item \textbf{Xuất bản lên Kafka:} Sự kiện được gửi bất đồng bộ lên topic của Kafka với thông tin bao gồm mã phiên, mã sản phẩm, loại tương tác, thời gian và mô hình được sử dụng. Việc gửi bất đồng bộ đảm bảo API không bị chặn bởi thao tác I/O của Kafka, giữ thời gian phản hồi ở mức thấp.
+    \item \textbf{Đệm (buffer) vào PostgreSQL:} Sự kiện thô và thông tin dự đoán được đẩy vào các hàng đợi bộ đệm Redis. Một tác vụ nền chạy định kỳ sẽ đẩy toàn bộ bộ đệm vào PostgreSQL theo lô. Cơ chế này giảm tải kết nối database và tránh tạo quá nhiều transaction nhỏ lẻ.
+    \item \textbf{Theo dõi độ chính xác:} Nếu sự kiện là carts hoặc orders, hệ thống kiểm tra xem sản phẩm người dùng tương tác có nằm trong danh sách gợi ý vừa trả về không, và ghi kết quả để tính toán tỷ lệ trúng (hit rate) và các metric đánh giá (Recall@K, NDCG@K, MRR@K).
 \end{enumerate}
+
+\subsubsection{Tái tính toán nền (Background Recompute)}
+Worker nền chạy liên tục, nhận các task từ hàng đợi và thực thi theo chiến lược sau:
+
+\begin{enumerate}
+    \item \textbf{Phiên ngắn (dưới 5 sự kiện):} Gợi ý dựa trên covisitation từ Redis - không gọi mô hình từ xa.
+    \item \textbf{Phiên dài (từ 5 sự kiện):} Gọi mô hình SASRec từ xa thông qua bộ ngắt mạch (circuit breaker). Nếu mô hình trả về kết quả thành công, kết quả được lưu vào bộ nhớ đệm Redis để các request tiếp theo đọc trực tiếp từ cache.
+    \item \textbf{Mô hình thất bại:} Nếu SASRec quá thời gian (timeout) hoặc lỗi, hệ thống tự động chuyển sang dự phòng (fallback) bằng covisitation từ Redis. Nếu bộ ngắt mạch mở do lỗi liên tiếp, hệ thống bỏ qua gọi mô hình trong một khoảng thời gian để tránh quá tải.
+\end{enumerate}
+
+Kiến trúc Read-Path / Write-Path tách biệt mang lại ba lợi ích chính:
+\begin{itemize}
+    \item \textbf{Độ trễ thấp:} Người dùng luôn nhận kết quả từ Redis (ms) - nhanh hơn.
+    \item \textbf{Khả năng phục hồi:} Khi mô hình từ xa gặp sự cố, Read-Path vẫn hoạt động bình thường với covisitation.
+    \item \textbf{Tính đồng thời:} Worker nền có thể xử lý nhiều phiên song song mà không ảnh hưởng đến tốc độ phản hồi của API.
+\end{itemize}
 
 API service cũng cung cấp điểm cuối (endpoint) \textbf{GET /api/stats} phục vụ bảng điều khiển (dashboard) Streamlit, trả về tổng hợp các chỉ số:
 \begin{itemize}
@@ -90,10 +105,11 @@ API service cũng cung cấp điểm cuối (endpoint) \textbf{GET /api/stats} p
     \item Metric Spark và các log bất thường.
 \end{itemize}
 
-Ngoài ra, API service triển khai hai tác vụ nền chạy định kỳ:
+Ngoài ra, API service triển khai ba tác vụ nền chạy định kỳ:
 \begin{itemize}
-    \item \textbf{flush\_db\_buffers\_task} (mỗi 5 giây): Đọc dữ liệu từ các bộ đệm (buffer) Redis và ghi hàng loạt vào PostgreSQL. Các bộ đệm (buffer) được bảo vệ bởi giới hạn kích thước tối đa 10000 bản ghi và TTL 1 giờ để tránh tràn bộ nhớ Redis trong trường hợp hạ nguồn (downstream) gặp sự cố.
-    \item \textbf{refresh\_ranks\_task} (mỗi 120 giây): Tính toán lại thứ hạng (rank) cho các sản phẩm phổ biến trong bảng \textbf{popular\_items} bằng hàm xếp hạng ROW\_NUMBER() của PostgreSQL, vì Spark Streaming không duy trì thứ tự sắp xếp trong quá trình cập nhật luồng.
+    \item \textbf{Tái tính toán gợi ý:} Tính toán lại gợi ý cho các phiên dài, lưu kết quả vào cache.
+    \item \textbf{Đồng bộ dữ liệu:} Đọc dữ liệu từ các bộ đệm Redis và ghi hàng loạt vào PostgreSQL.
+    \item \textbf{Làm mới thứ hạng:} Tính toán lại thứ hạng cho các sản phẩm phổ biến.
 \end{itemize}
 Việc dọn dẹp (cleanup) dữ liệu cũ được thực hiện bởi một container riêng (docker-compose service \textbf{cleanup}), chạy script SQL xóa dữ liệu cũ hơn 30 ngày, kích hoạt thủ công hoặc qua cron job bên ngoài.
 
@@ -161,11 +177,12 @@ Hệ thống sử dụng PostgreSQL làm kho dữ liệu phân tích chính vớ
 
 Cơ sở dữ liệu áp dụng chính sách lưu trữ (retention period): dữ liệu phân tích và log sự kiện thô được giữ 30 ngày, xóa bởi container cleanup chạy định kỳ.
 
-Redis được sử dụng cho ba mục đích:
+Redis được sử dụng cho bốn mục đích chính:
 \begin{itemize}
-    \item \textbf{Lưu phiên (session storage):} Danh sách sự kiện theo thứ tự thời gian cho mỗi phiên, với TTL 30 phút. Cấu trúc List của Redis phù hợp tự nhiên cho việc ghi và đọc chuỗi sự kiện theo thứ tự.
-    \item \textbf{Bộ nhớ đệm kết quả gợi ý (recommendation cache):} Kết quả gợi ý của mỗi phiên được lưu với TTL 30 phút, tránh tính toán lại cho mỗi sự kiện.
-    \item \textbf{Hàng đợi bộ đệm (buffer):} API service đẩy dữ liệu vào bốn bộ đệm (buffer) Redis và tác vụ nền đẩy (flush) định kỳ vào PostgreSQL. Mỗi buffer có TTL 1 giờ và giới hạn tối đa 10000 bản ghi, hoạt động như cơ chế bảo vệ ngắt mạch (circuit breaker) khi PostgreSQL gặp sự cố.
+    \item \textbf{Lưu phiên:} Danh sách sự kiện theo thứ tự thời gian cho mỗi phiên.
+    \item \textbf{Bộ nhớ đệm kết quả gợi ý:} Kết quả gợi ý của mỗi phiên được lưu để Read-Path trả về nhanh.
+    \item \textbf{Ma trận covisitation:} Ma trận liên kết sản phẩm được preload từ file Parquet vào Redis.
+    \item \textbf{Hàng đợi bộ đệm:} Đệm dữ liệu trước khi ghi vào PostgreSQL.
 \end{itemize}
 
 \section{Triển khai}
