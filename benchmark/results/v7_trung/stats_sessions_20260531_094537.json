@@ -1,0 +1,26 @@
+{
+  "rows": 3,
+  "data": [
+    {
+      "session_type": "browse_only",
+      "count": 160,
+      "avg_length": 1.05625,
+      "avg_duration_sec": 0.359525,
+      "pct_of_total": 31.683168316831683
+    },
+    {
+      "session_type": "cart_abandoner",
+      "count": 170,
+      "avg_length": 1.0529411764705883,
+      "avg_duration_sec": 0.12242352941176471,
+      "pct_of_total": 33.663366336633665
+    },
+    {
+      "session_type": "buyer",
+      "count": 175,
+      "avg_length": 1.177142857142857,
+      "avg_duration_sec": 0.7335657142857143,
+      "pct_of_total": 34.65346534653465
+    }
+  ]
+}

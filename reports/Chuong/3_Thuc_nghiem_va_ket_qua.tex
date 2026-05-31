@@ -2,7 +2,10 @@
 \begin{document}
 
 \section{Mô hình hệ gợi ý}
-Nội dung dành riêng.
+
+
+
+
 
 \section{Hệ thống xử lý dữ liệu}
 Hệ thống xử lý dữ liệu của đề tài gồm mười một dịch vụ (service), mỗi dịch vụ đảm nhận một vai trò xác định trong đường ống xử lý (đường ống) từ khi tiếp nhận sự kiện từ người dùng đến khi lưu trữ kết quả phân tích. Phần này trình bày kiến trúc tổng quan của hệ thống, luồng dữ liệu chi tiết giữa các thành phần, và cách triển khai từng module xử lý.
@@ -49,10 +52,60 @@ Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đ
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.9\textwidth]{../Hinhve/system-kpdll.png}
+\includegraphics[width=1\textwidth]{../Hinhve/system-kpdll.png}
 \caption{Kiến trúc tổng quan hệ thống xử lý dữ liệu}
 \label{fig:architecture}
 \end{figure}
+
+\subsection{Ma trận đồng xuất hiện (Co-visitation Matrix)}
+Co-visitation matrix được xây dựng offline, xử lý dữ liệu với Spark trước khi hệ thống được khởi động. Ma trận này dùng để trả về kết quả cho người dùng khi gặp vấn đề session ngắn hoặc mô hình bị lỗi không thể kết nối.
+
+Ý tưởng cốt lõi: nếu hai sản phẩm thường xuyên xuất hiện cùng nhau trong các phiên mua sắm của người dùng thì chúng có khả năng cao là các cặp sản phẩm liên quan đến nhau. Ma trận này biểu diễn mối liên hệ đó thành các cặp $(aid_a, aid_b)$ kèm với trọng số tích lũy, sau đó được lưu vào Redis để tra cứu nhanh.
+
+Quá trình xây dựng ma trận đồng xuất hiện gồm các bước chính:
+
+\subsubsection{Bước 1: Sinh cặp sản phẩm (Item Pairs Generation)}
+
+Đầu vào của pipeline là tập dữ liệu hành vi người dùng định dạng Parquet. Mỗi bản ghi trong tập dữ liệu bao gồm bốn trường thông tin cốt lõi: session, aid (mã định danh sản phẩm), ts (timestamp) và type (loại tương tác: click, cart, order).
+
+
+\begin{itemize}
+    \item \textbf{Giới hạn kích thước phiên:} Toàn bộ các sự kiện trong cùng một session được gom nhóm thành một danh sách, sắp xếp theo thứ tự thời gian giảm dần và cắt lấy tối đa 30 sự kiện gần nhất.
+    \item \textbf{Sinh cặp bằng cửa sổ trượt:} Các cặp sản phẩm được khởi tạo bằng một cửa sổ trượt. Một sản phẩm tại vị trí $i$ trong danh sách sẽ được ghép cặp với tối đa 5 sản phẩm đứng trước và 5 sản phẩm đứng sau nó.
+\end{itemize}
+
+Hệ thống áp dụng hai điều kiện lọc: các sản phẩm trong cặp phải phân biệt ($\text{aid}_a \neq \text{aid}_b$) và khoảng cách tương tác không quá 24 giờ. Các cặp tương đương như (A, B) và (B, A) được quy về một khóa duy nhất. Các thao tác gom nhóm, mở rộng explode và lọc dữ liệu được thực hiện cục bộ trên từng executor ngay sau phép toán groupBy(session), giúp tối ưu hóa băng thông mạng nhờ hạn chế tối đa dữ liệu dịch chuyển (\textit{shuffle}).
+
+\subsubsection{Bước 2: Tính toán trọng số tương tác (Event Bonus)}
+
+Mỗi loại hành vi của người dùng thể hiện một mức độ quan tâm và ý định mua sắm khác nhau. Để phản ánh chính xác trực giác này, thực hiện gán trọng số tích lũy cho từng cặp sản phẩm dựa trên tổ hợp loại hành động tương ứng của chúng.
+
+\begin{table}[htbp]
+\centering
+\label{tab:event_bonus}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Tổ hợp cặp hành động} & \textbf{Trọng số} \\ \hline
+\textit{click} + \textit{click} & 1.0 \\ \hline
+\textit{click} + \textit{cart}  & 3.0 \\ \hline
+\textit{click} + \textit{order} & 4.0 \\ \hline
+\textit{cart} + \textit{cart}   & 6.0 \\ \hline
+\textit{cart} + \textit{order}  & 7.0 \\ \hline
+\textit{order} + \textit{order} & 10.0 \\ \hline
+\end{tabular}
+\caption{Bảng trọng số tích lũy theo tổ hợp hành vi (Event Bonus)}
+\end{table}
+
+\subsubsection{Bước 3: Tổng hợp và chọn lọc Top-K}
+
+Sau khi tính toán trọng số tại từng phiên, tiến hành tổng hợp trên toàn bộ tập dữ liệu. Trọng số của cặp $(\text{aid}_a, \text{aid}_b)$ được cộng dồn qua tất cả các phiên. Mỗi cặp $(A, B)$ sẽ được nhân đôi thành hai bản ghi hướng tâm tách biệt.
+
+Hệ thống phân rã theo từng sản phẩm mục tiêu, sắp xếp các sản phẩm liên quan theo thứ tự trọng số giảm dần và tiến hành giữ lại Top-20 ứng viên sáng giá nhất. Kết quả đầu ra được lưu thành file \texttt{Parquet} với cấu trúc :
+\begin{itemize}
+    \item \texttt{aid}: \textit{long} (Mã sản phẩm gốc)
+    \item \texttt{candidates}: \textit{array<struct<aid2: long, wgt: double>>} (Danh sách các sản phẩm liên quan gợi ý và trọng số đi kèm)
+\end{itemize}
+
 
 \subsection{Hệ thống xử lý dữ liệu}
 
@@ -67,7 +120,7 @@ Dịch vụ API được xây dựng bằng FastAPI, tiếp nhận các tương 
     \item \textbf{Bộ nhớ đệm có dữ liệu:} Nếu đã có kết quả gợi ý được tính toán trước đó, trả về ngay lập tức cho người dùng. Đây là trường hợp phổ biến nhất, đảm bảo độ trễ phản hồi ở mức ms.
     \item \textbf{Bộ nhớ đệm trống:} Nếu chưa có, dịch vụ API truy vấn ma trận covisitation từ Redis để lấy danh sách sản phẩm liên quan cho từng sản phẩm trong phiên, sau đó tổng hợp và xếp hạng theo điểm số. Toàn bộ quy trình chỉ cần một lần truy vấn đến Redis, đảm bảo độ trễ thấp.
 \end{itemize}
-Luồng đọc được thiết kế để luôn trả về kết quả cho người dùng ngay lập tức, không chờ đợi bất kỳ mô hình nào. Điều này giúp duy trì thời gian phản hồi ổn định bất kể trạng thái của hệ thống gợi ý.
+Luồng đọc được thiết kế để luôn trả về kết quả cho người dùng ngay lập tức, không chờ đợi bất kỳ mô hình nào. Điều này giúp duy trì thời gian phản hồi ổn định bất kể trạng thái của hệ thống gợi ý. Luồng gợi ý được mô tả như trên hình \ref{fig:recommend}
 
     \item \textbf{Đẩy tác vụ tái tính toán nền (luồng ghi):} Nếu độ dài phiên lớn hơn hoặc bằng 5 sự kiện, dịch vụ API đẩy thông tin phiên vào hàng đợi để tác vụ nền thực thi. Tác vụ này chạy bất đồng bộ, không chặn luồng phản hồi chính. Các phiên ngắn (dưới 5 sự kiện) không cần tái tính toán vì covisitation đã đủ tốt.
 
@@ -77,7 +130,12 @@ Luồng đọc được thiết kế để luôn trả về kết quả cho ngư
 
     \item \textbf{Theo dõi độ chính xác:} Nếu sự kiện là thao tác thêm vào giỏ hàng hoặc mua hàng, hệ thống kiểm tra xem sản phẩm người dùng tương tác có nằm trong danh sách gợi ý vừa trả về không, và ghi kết quả để tính toán tỷ lệ trúng và các chỉ số đánh giá.
 \end{enumerate}
-
+\begin{figure}[H]
+\centering
+\includegraphics[width=1\textwidth]{../Hinhve/goi_y_v2.png}
+\caption{ Mô tả luồng gợi ý}
+\label{fig:recommend}
+\end{figure}
 \subsubsection{Tái tính toán nền (luồng ghi)}
 Tác vụ nền chạy liên tục, nhận các tác vụ từ hàng đợi và thực thi theo chiến lược sau:
 
@@ -247,14 +305,14 @@ Thông lượng 11.554 bản ghi/giây ở mức FAIL, rất xa ngưỡng OK ($>
 \subsubsection{Kiểm tra tải API}
 Kiểm tra tải API sử dụng k6 với kịch bản tăng tải ba giai đoạn (10, 50, 80 người dùng đồng thời, mỗi giai đoạn 3 phút):
 \begin{itemize}
-    \item Độ trễ trung vị (P50): 212 ms.
-    \item Độ trễ trung bình: 773 ms.
-    \item Độ trễ P95: 2889 ms.
+    \item Độ trễ trung vị (P50): 108 ms.
+    \item Độ trễ trung bình: 735 ms.
+    \item Độ trễ P95: 2594 ms.
     \item Độ trễ tối đa: 10.002 ms.
-    \item Thông lượng: 30,9 yêu cầu/giây.
-    \item Tỷ lệ lỗi: 0,28\%.
+    \item Thông lượng: 31,8 yêu cầu/giây.
+    \item Tỷ lệ lỗi: 0,61\%.
 \end{itemize}
-Độ trễ P95 2889 ms ở mức FAIL ($>$1 giây). Nguyên nhân là các yêu cầu (request) đầu tiên của mỗi phiên phải chờ tiến trình nền (worker) tính toán gợi ý từ đồng xuất hiện (covisitation) khi bộ nhớ đệm (cache) Redis trống, dẫn đến một số yêu cầu có độ trễ cao. Tuy nhiên, độ trễ trung vị chỉ 212 ms cho thấy phần lớn yêu cầu được phục vụ nhanh từ bộ nhớ đệm. Tỷ lệ lỗi 0,28\% ở mức WARN (dưới ngưỡng FAIL 5\%), với 41 yêu cầu lỗi trên tổng số 14.829 - chủ yếu xảy ra ở giai đoạn tải đỉnh. Thông lượng 30,9 yêu cầu/giây cho thấy API đáp ứng tốt dưới áp lực 80 người dùng đồng thời.
+Độ trễ P95 2594 ms ở mức FAIL ($>$1 giây). Nguyên nhân là các yêu cầu (request) đầu tiên của mỗi phiên phải chờ tiến trình nền (worker) tính toán gợi ý từ đồng xuất hiện (covisitation) khi bộ nhớ đệm (cache) Redis trống, dẫn đến một số yêu cầu có độ trễ cao. Tuy nhiên, độ trễ trung vị chỉ 108 ms cho thấy phần lớn yêu cầu được phục vụ nhanh từ bộ nhớ đệm. Tỷ lệ lỗi 0,61\% ở mức WARN (dưới ngưỡng FAIL 5\%), với 93 yêu cầu lỗi trên tổng số 15.244 - chủ yếu xảy ra ở giai đoạn tải đỉnh. Thông lượng 31,8 yêu cầu/giây cho thấy API đáp ứng tốt dưới áp lực 80 người dùng đồng thời. Ngoài ra thì nếu sử dụng mô hình TRON thì độ trễ  giảm xuống so với mô hình LGBMRanker, cho thấy khả năng sinh gợi ý nhanh hơn của TRON.
 
 \subsubsection{Độ ổn định Spark Streaming}
 Spark Streaming chạy ở chế độ cụm (cluster mode) với hai nút công nhân (worker node), khoảng kích hoạt (trigger interval) 10 giây:
@@ -277,7 +335,7 @@ Thời gian lô trung bình 10,1 giây ở mức FAIL ($>$10 giây). Tuy nhiên,
 Cả hai chỉ số đều ở mức FAIL. Nguyên nhân chính là Spark Streaming phải ghi kết quả vào PostgreSQL qua khoảng lô (batch interval) 10 giây với chi phí điểm phục hồi (checkpoint overhead), kết hợp với độ trễ tích lũy từ bộ sản xuất Kafka (Kafka producer) và xử lý Spark (Spark processing). Xử lý Spark là nút thắt cổ chai (bottleneck) chính trong đường ống (pipeline).
 
 \subsubsection{Nhận xét}
-Kết quả đo hiệu năng (benchmark) v6 đánh giá đường ống OTTO Recommender (pipeline) trên bốn nhóm chỉ số:
+Kết quả đo hiệu năng (benchmark) đánh giá đường ống OTTO Recommender (pipeline) trên bốn nhóm chỉ số:
 
 \begin{itemize}
     \item \textbf{API (FAIL):} Độ trễ P95 2.889 ms vượt ngưỡng FAIL ($>$1 giây). Tuy nhiên, P50 chỉ 212 ms và tỷ lệ lỗi 0,28\% ở mức WARN cho thấy kiến trúc luồng đọc/luồng ghi (Read-Path/Write-Path) hoạt động hiệu quả với đa số yêu cầu. Các yêu cầu có độ trễ cao tập trung ở đầu phiên khi bộ nhớ đệm (cache) Redis chưa có dữ liệu. Thông lượng 30,9 yêu cầu/giây với 80 người dùng đồng thời (VUs) là kết quả tích cực.
@@ -289,7 +347,7 @@ Kết quả đo hiệu năng (benchmark) v6 đánh giá đường ống OTTO Rec
     \item \textbf{Độ trễ đầu cuối (FAIL):} P50 201 giây và P95 409 giây, vượt xa ngưỡng FAIL. Đây là hệ quả tích lũy từ toàn bộ đường ống, với Spark streaming là nút thắt chính.
 \end{itemize}
 
-Tóm lại, kiến trúc luồng đọc/luồng ghi giúp API phục vụ đa số yêu cầu nhanh từ bộ nhớ đệm với P50 212 ms, nhưng các chỉ số đường ống còn ở mức FAIL. Hướng cải thiện chính gồm:
+Tóm lại, kiến trúc luồng đọc/luồng ghi giúp API phục vụ đa số yêu cầu nhanh từ bộ nhớ đệm với P50 108 ms, nhưng các chỉ số đường ống còn ở mức FAIL. Hướng cải thiện chính gồm:
 \begin{enumerate}
     \item Tách riêng ổ đĩa cho nhật ký Kafka và điểm phục hồi Spark để giảm tranh chấp nhập/xuất.
     \item Làm nóng bộ nhớ đệm (cache warming) cho phiên mới để giảm P95 API.

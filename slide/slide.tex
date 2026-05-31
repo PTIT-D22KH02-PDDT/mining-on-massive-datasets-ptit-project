@@ -80,10 +80,74 @@
   \vfill
 \end{frame}
 
-\begin{frame}
-\tableofcontents[sectionstyle=show,
+% \tableofcontents[sectionstyle=show,
+% subsectionstyle=show/shaded/hide,
+% subsubsectionstyle=show/shaded/hide]
+
+\begin{frame}{Kiến trúc hệ thống và hệ thống xử lý dữ liệu }
+ \tableofcontents[sectionstyle=show,
 subsectionstyle=show/shaded/hide,
 subsubsectionstyle=show/shaded/hide]
+    \vspace{-0.2cm}
+    \begin{center}
+        \includegraphics[width=0.90\textwidth]{system-kpdll.png}
+
+        \vspace{0.1cm}
+    \end{center}
+\end{frame}
+
+\begin{frame}{Mô tả luồng gợi ý}
+ \tableofcontents[sectionstyle=show,
+subsectionstyle=show/shaded/hide,
+subsubsectionstyle=show/shaded/hide]
+    \vspace{-0.2cm}
+    \begin{center}
+        \includegraphics[width=0.90\textwidth]{goi_y_v3.png}
+
+        \vspace{0.1cm}
+    \end{center}
+\end{frame}
+
+\begin{frame}{Kết quả thực nghiệm hệ thống}
+ \tableofcontents[sectionstyle=show,
+ subsectionstyle=show/shaded/hide,
+ subsubsectionstyle=show/shaded/hide]
+    \vspace{-0.2cm}
+    \begin{table}[h]
+    \centering
+    \begin{tabular}{lcc}
+    \toprule
+    \textbf{Chỉ số} & \textbf{Kết quả} & \textbf{SLA} \\
+    \midrule
+    Độ trễ P95 API      & 2.594\,ms & FAIL\\
+    Độ trễ P50 API      & 108\,ms   & ---\\
+    Tỷ lệ lỗi API       & 0,61\%    & WARN\\
+    Thông lượng API     & 31,8\,yêu cầu/s & ---\\
+    \midrule
+    Thông lượng Kafka   & 11.554\,bản ghi/s & FAIL\\
+    Độ trễ P95 Kafka    & 4.687\,ms & WARN\\
+    \midrule
+    Xử lý lô Spark TB    & 10,1\,s   & FAIL\\
+    Xử lý lô ổn định     & 7,3\,s    & WARN\\
+    \midrule
+    Độ trễ P50 đầu cuối   & 201\,s    & FAIL\\
+    Độ trễ P95 đầu cuối   & 409\,s    & FAIL\\
+    \bottomrule
+    \end{tabular}
+    \end{table}
+
+    \vspace{0.1cm}
+\end{frame}
+
+\begin{frame}{Kết luận và hướng cải thiện}
+ \tableofcontents[sectionstyle=show,
+ subsectionstyle=show/shaded/hide,
+ subsubsectionstyle=show/shaded/hide]
+    \vspace{-0.2cm}
+    Hệ thống đáp ứng tốt ở tầng API với độ trễ thấp nhờ kiến trúc luồng đọc/luồng ghi, tuy nhiên các chỉ số đường ống còn yếu: thông lượng Kafka thấp do tranh chấp I/O, Spark Streaming bị tụt hậu ở các lô đầu, và độ trễ đầu cuối còn cao do Spark xử lý chưa theo kịp.
+
+    \vspace{0.3cm}
+    Hướng cải thiện chính: tách ổ đĩa Kafka log và Spark checkpoint, làm nóng bộ nhớ đệm cho phiên mới, và tăng tài nguyên CPU/RAM cho Spark worker.
 \end{frame}
 
 \end{document}
