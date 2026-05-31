@@ -305,14 +305,14 @@ Thông lượng 11.554 bản ghi/giây ở mức FAIL, rất xa ngưỡng OK ($>
 \subsubsection{Kiểm tra tải API}
 Kiểm tra tải API sử dụng k6 với kịch bản tăng tải ba giai đoạn (10, 50, 80 người dùng đồng thời, mỗi giai đoạn 3 phút):
 \begin{itemize}
-    \item Độ trễ trung vị (P50): 212 ms.
-    \item Độ trễ trung bình: 773 ms.
-    \item Độ trễ P95: 2889 ms.
+    \item Độ trễ trung vị (P50): 108 ms.
+    \item Độ trễ trung bình: 735 ms.
+    \item Độ trễ P95: 2594 ms.
     \item Độ trễ tối đa: 10.002 ms.
-    \item Thông lượng: 30,9 yêu cầu/giây.
-    \item Tỷ lệ lỗi: 0,28\%.
+    \item Thông lượng: 31,8 yêu cầu/giây.
+    \item Tỷ lệ lỗi: 0,61\%.
 \end{itemize}
-Độ trễ P95 2889 ms ở mức FAIL ($>$1 giây). Nguyên nhân là các yêu cầu (request) đầu tiên của mỗi phiên phải chờ tiến trình nền (worker) tính toán gợi ý từ đồng xuất hiện (covisitation) khi bộ nhớ đệm (cache) Redis trống, dẫn đến một số yêu cầu có độ trễ cao. Tuy nhiên, độ trễ trung vị chỉ 212 ms cho thấy phần lớn yêu cầu được phục vụ nhanh từ bộ nhớ đệm. Tỷ lệ lỗi 0,28\% ở mức WARN (dưới ngưỡng FAIL 5\%), với 41 yêu cầu lỗi trên tổng số 14.829 - chủ yếu xảy ra ở giai đoạn tải đỉnh. Thông lượng 30,9 yêu cầu/giây cho thấy API đáp ứng tốt dưới áp lực 80 người dùng đồng thời.
+Độ trễ P95 2594 ms ở mức FAIL ($>$1 giây). Nguyên nhân là các yêu cầu (request) đầu tiên của mỗi phiên phải chờ tiến trình nền (worker) tính toán gợi ý từ đồng xuất hiện (covisitation) khi bộ nhớ đệm (cache) Redis trống, dẫn đến một số yêu cầu có độ trễ cao. Tuy nhiên, độ trễ trung vị chỉ 108 ms cho thấy phần lớn yêu cầu được phục vụ nhanh từ bộ nhớ đệm. Tỷ lệ lỗi 0,61\% ở mức WARN (dưới ngưỡng FAIL 5\%), với 93 yêu cầu lỗi trên tổng số 15.244 - chủ yếu xảy ra ở giai đoạn tải đỉnh. Thông lượng 31,8 yêu cầu/giây cho thấy API đáp ứng tốt dưới áp lực 80 người dùng đồng thời. Ngoài ra thì nếu sử dụng mô hình TRON thì độ trễ  giảm xuống so với mô hình LGBMRanker, cho thấy khả năng sinh gợi ý nhanh hơn của TRON.
 
 \subsubsection{Độ ổn định Spark Streaming}
 Spark Streaming chạy ở chế độ cụm (cluster mode) với hai nút công nhân (worker node), khoảng kích hoạt (trigger interval) 10 giây:
@@ -347,7 +347,7 @@ Kết quả đo hiệu năng (benchmark) đánh giá đường ống OTTO Recomm
     \item \textbf{Độ trễ đầu cuối (FAIL):} P50 201 giây và P95 409 giây, vượt xa ngưỡng FAIL. Đây là hệ quả tích lũy từ toàn bộ đường ống, với Spark streaming là nút thắt chính.
 \end{itemize}
 
-Tóm lại, kiến trúc luồng đọc/luồng ghi giúp API phục vụ đa số yêu cầu nhanh từ bộ nhớ đệm với P50 212 ms, nhưng các chỉ số đường ống còn ở mức FAIL. Hướng cải thiện chính gồm:
+Tóm lại, kiến trúc luồng đọc/luồng ghi giúp API phục vụ đa số yêu cầu nhanh từ bộ nhớ đệm với P50 108 ms, nhưng các chỉ số đường ống còn ở mức FAIL. Hướng cải thiện chính gồm:
 \begin{enumerate}
     \item Tách riêng ổ đĩa cho nhật ký Kafka và điểm phục hồi Spark để giảm tranh chấp nhập/xuất.
     \item Làm nóng bộ nhớ đệm (cache warming) cho phiên mới để giảm P95 API.
