@@ -29,6 +29,7 @@ import pybreaker
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.db import Database
 from src.api.session_manager import SessionManager
@@ -466,7 +467,12 @@ app = FastAPI(
     version="1.1.0",
     lifespan=lifespan,
 )
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Correlation ID Middleware (Phase 2.2) ---
 @app.middleware("http")
@@ -508,6 +514,9 @@ async def receive_event(event: EventRequest, request: Request):
         model_used = "covisitation_redis"
         session_aids = await session_mgr.get_session_aids(event.session_id)
         recommendations = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
+    
+    logger.info(f"Cache hit/miss ={model_used}")
+
     # 3. Push to background recompute queue (non-blocking Write-Path)
     should_recompute = session_length >= 5  # Complex model needs updates
     if should_recompute and background_queue and event.session_id not in pending_sessions:
