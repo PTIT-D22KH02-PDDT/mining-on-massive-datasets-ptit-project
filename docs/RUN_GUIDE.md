@@ -133,6 +133,7 @@ Xem log real-time:
 
 ```bash
 docker compose -f docker-compose.dev.yml logs -f api
+docker compose -f docker-compose.dev.yml logs -f frontend
 docker compose -f docker-compose.dev.yml logs -f dashboard
 ```
 
@@ -142,6 +143,8 @@ docker compose -f docker-compose.dev.yml logs -f dashboard
 
 | Service | URL | Mô tả |
 |---------|-----|-------|
+| Frontend | http://localhost:3000 | Giao diện React (production) |
+| Frontend (dev) | http://localhost:5173 | Giao diện React (HMR dev) |
 | Dashboard | http://localhost:8501 | Giao diện Streamlit |
 | API | http://localhost:8000 | FastAPI server |
 | API Docs | http://localhost:8000/docs | Swagger UI |
@@ -277,20 +280,24 @@ docker compose -f docker-compose.dev.yml logs spark-streaming
 ## Phụ lục: Kiến trúc Container
 
 ```
-                    +------------------+
-                    |     Dashboard    |  :8501 (Streamlit)
-                    +--------+---------+
-                             |
-                    +--------+---------+
-                    |       API        |  :8000 (FastAPI)
-                    +--+------+------+--+
-                       |      |      |
-              +--------+  +---+---+  +--------+
-              |           |       |           |
-        +-----+----+ +---+---+ +-+--------+ +---+------+
-        |   Redis  | | Kafka | | Postgres | | SASRec   |
-        |   :6379  | | :9092 | | :5432    | | (remote) |
-        +----------+ +-------+ +----------+ +----------+
+                     +------------------+
+                     |    Frontend      |  :3000 (React/Nginx)
+                     +--------+---------+  :5173 (Vite dev)
+                              |
+                     +--------+---------+
+                     |     Dashboard    |  :8501 (Streamlit)
+                     +--------+---------+
+                              |
+                     +--------+---------+
+                     |       API        |  :8000 (FastAPI)
+                     +--+------+------+--+
+                        |      |      |
+               +--------+  +---+---+  +--------+
+               |           |       |           |
+         +-----+----+ +---+---+ +-+--------+ +---+------+
+         |   Redis  | | Kafka | | Postgres | | SASRec   |
+         |   :6379  | | :9092 | | :5432    | | (remote) |
+         +----------+ +-------+ +----------+ +----------+
 ```
 
 | Container | Vai trò |
@@ -298,6 +305,7 @@ docker compose -f docker-compose.dev.yml logs spark-streaming
 | `redis` | Session storage + Covisitation matrix (1.7M+ keys) |
 | `kafka` | Message queue cho user events |
 | `postgres` | Persistent storage (predictions, events, metrics) |
+| `frontend` | Giao diện React (Nginx production / Vite dev) |
 | `api` | FastAPI backend server |
 | `dashboard` | Giao diện Streamlit monitoring |
 | `spark-streaming` | Real-time processing pipeline |

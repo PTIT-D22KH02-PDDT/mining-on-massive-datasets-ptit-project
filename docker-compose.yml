@@ -2,6 +2,7 @@ services:
   kafka:
     image: docker.io/apache/kafka:4.1.1
     container_name: kafka
+    user: "root"
     ports:
       - "29092:29092"
     volumes:
@@ -330,6 +331,24 @@ services:
         reservations:
           cpus: '1.0'
           memory: 2g
+
+  frontend:
+    image: ${DOCKER_USERNAME:-otto}/otto-frontend:${DOCKER_TAG:-latest}
+    container_name: otto-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./frontend/public/images:/usr/share/nginx/html/images:ro
+    networks:
+      - spark-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256m
 
   # === Data Retention Cleanup (Phase 6.1) ===
   cleanup:

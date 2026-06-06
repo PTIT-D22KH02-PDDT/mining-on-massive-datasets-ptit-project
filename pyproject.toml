@@ -25,7 +25,7 @@ api = [
 ]
 
 spark = [
-    "pyspark>=3.5.0,<4.0.0",
+    "pyspark==3.5.0",
     "psycopg2-binary>=2.9.12",
     "python-dotenv==1.1.1",
     "pybreaker>=1.0.0",
@@ -33,7 +33,7 @@ spark = [
 ]
 
 setup = [
-    "pyspark>=3.5.0,<4.0.0",
+    "pyspark==3.5.0",
     "psycopg2-binary>=2.9.12",
     "python-dotenv==1.1.1",
     "aiokafka==0.13.0",

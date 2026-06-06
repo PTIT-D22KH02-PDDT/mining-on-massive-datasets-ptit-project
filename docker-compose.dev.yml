@@ -61,6 +61,29 @@ services:
       - PYSPARK_PYTHON=/usr/bin/python3
       - PYSPARK_DRIVER_PYTHON=/usr/bin/python3
 
+  frontend:
+    image: ${DOCKER_USERNAME:-otto}/otto-frontend:${DOCKER_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: dev
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.js:/app/vite.config.js:ro
+      - ./frontend/nginx.conf:/app/nginx.conf:ro
+    ports:
+      - "5173:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - spark-net
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+
   setup-jobs:
     image: ${DOCKER_USERNAME:-otto}/otto-setup:${DOCKER_TAG:-latest}
     build:

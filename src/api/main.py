@@ -29,6 +29,7 @@ import pybreaker
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.db import Database
 from src.api.session_manager import SessionManager
@@ -321,13 +322,26 @@ async def background_recompute_worker():
                     model_used = "covisitation_redis"
                     recs = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
                 
+                has_recs = bool(recs) and any(recs.values())
                 # Ghi đè kết quả mới tính toán xong vào Redis Cache 
-                await session_mgr.store_recommendations(session_id, recs)
+                if has_recs:
+                    await session_mgr.store_recommendations(session_id, recs)
+                    logger.info(
+                        f"[Worker][{corr_id}] Recomputed recs for session {session_id} "
+                        f"(len={session_length}, model={model_used})"
+                    )
+                else:
+                    """
+                    xóa key cũ nếu có khi trả về kết quả rỗng, vì nếu đang trả redis_cache 
+                    mà model sập thì trong redis vẫn luôn có recs: do đó sẽ chỉ trả về recs 
+                    tại thời điểm đó cho mọi event tiếp theo
+                    """
+                    await session_mgr.redis.delete(f"recs:{session_id}")
+                    logger.warning(
+                        f"[Worker][{corr_id}] No recommendations produced for session {session_id} "
+                        f"(len={session_length}, model={model_used}) — cache cleared"
+                    )
                 
-                logger.info(
-                    f"[Worker][{corr_id}] Recomputed recs for session {session_id} "
-                    f"(len={session_length}, model={model_used})"
-                )
             finally:
                 pending_sessions.discard(session_id)
                 background_queue.task_done()
@@ -466,7 +480,12 @@ app = FastAPI(
     version="1.1.0",
     lifespan=lifespan,
 )
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Correlation ID Middleware (Phase 2.2) ---
 @app.middleware("http")
@@ -497,8 +516,9 @@ async def receive_event(event: EventRequest, request: Request):
 
     # 2. Get recommendations (Read-Path logic)
     cached_recs = await session_mgr.get_last_recommendations(event.session_id)
+    has_cached = bool(cached_recs) and any(cached_recs.values())
 
-    if cached_recs:
+    if has_cached:
         # Cache HIT - return precomputed recommendations immediately
         model_used = "cached-redis"
         recommendations = cached_recs
@@ -508,6 +528,9 @@ async def receive_event(event: EventRequest, request: Request):
         model_used = "covisitation_redis"
         session_aids = await session_mgr.get_session_aids(event.session_id)
         recommendations = await session_mgr.get_covisitation_recommendations(session_aids, TOP_K)
+    
+    logger.info(f"Cache hit/miss ={model_used}")
+
     # 3. Push to background recompute queue (non-blocking Write-Path)
     should_recompute = session_length >= 5  # Complex model needs updates
     if should_recompute and background_queue and event.session_id not in pending_sessions:
