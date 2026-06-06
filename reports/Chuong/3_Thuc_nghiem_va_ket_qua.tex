@@ -8,10 +8,10 @@
 
 
 \section{Hệ thống xử lý dữ liệu}
-Hệ thống xử lý dữ liệu của đề tài gồm mười một dịch vụ (service), mỗi dịch vụ đảm nhận một vai trò xác định trong đường ống xử lý (đường ống) từ khi tiếp nhận sự kiện từ người dùng đến khi lưu trữ kết quả phân tích. Phần này trình bày kiến trúc tổng quan của hệ thống, luồng dữ liệu chi tiết giữa các thành phần, và cách triển khai từng module xử lý.
+Hệ thống xử lý dữ liệu của đề tài gồm mười hai dịch vụ (service), mỗi dịch vụ đảm nhận một vai trò xác định trong đường ống xử lý (đường ống) từ khi tiếp nhận sự kiện từ người dùng đến khi lưu trữ kết quả phân tích. Phần này trình bày kiến trúc tổng quan của hệ thống, luồng dữ liệu chi tiết giữa các thành phần, và cách triển khai từng module xử lý.
 
 \subsection{Kiến trúc tổng quan}
-Hệ thống gồm mười một container được tổ chức như sau:
+Hệ thống gồm mười hai container được tổ chức như sau:
 
 \begin{table}[H]
 \centering
@@ -21,6 +21,8 @@ Hệ thống gồm mười một container được tổ chức như sau:
 \textbf{Service} & \textbf{Vai trò} \\
 \hline
 \textbf{api} & Tiếp nhận sự kiện, trả về kết quả gợi ý \\
+\hline
+\textbf{frontend} & Giao diện người dùng, hiển thị sản phẩm và gợi ý \\
 \hline
 \textbf{spark-master} & Điều phối tác vụ (job) Spark trong cụm (cluster) \\
 \hline
@@ -48,7 +50,9 @@ Hệ thống gồm mười một container được tổ chức như sau:
 
 Spark được triển khai ở chế độ cụm (cluster mode) với một nút điều phối (spark-master) và hai nút công nhân (spark-tác vụ nền). spark-master chịu trách nhiệm điều phối tác vụ (job) và phân bổ tài nguyên cho các executor. spark-streaming kết nối tới spark-master để gửi tác vụ (job) xử lý streaming; các executor chạy trên tác vụ nền container nhận tác vụ (tác vụ) từ master để xử lý dữ liệu Kafka. Dữ liệu đầu vào (datasets) và điểm phục hồi (điểm phục hồi) được chia sẻ giữa các tác vụ nền qua volume Docker để đảm bảo mọi executor có thể truy cập cùng một dữ liệu.
 
-Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đồ dưới đây (Hình \ref{fig:architecture}). Khi người dùng gửi một tương tác (nhấn, thêm vào giỏ hàng, mua hàng), sự kiện được gửi đến API service qua HTTP POST. API service lưu sự kiện vào Redis để quản lý phiên, sau đó thực thi luồng gợi ý theo chiến lược luồng đọc: kiểm tra bộ nhớ đệm Redis trước, nếu có thì trả về ngay lập tức; nếu chưa có thì truy vấn ma trận covisitation từ Redis để tạo gợi ý tức thì. Đồng thời, nếu phiên đủ dài, API service đẩy tác vụ tái tính toán vào hàng đợi nền để tác vụ nền gọi mô hình từ xa và lưu kết quả mới vào cache. Sự kiện cũng được xuất bản lên Kafka để Spark Streaming xử lý phân tích bất đồng bộ và ghi kết quả vào các bảng PostgreSQL. Bảng điều khiển (Dashboard) Streamlit gọi API để hiển thị số liệu giám sát.
+Frontend là ứng dụng React được đóng gói bằng Nginx cho môi trường production và Vite dev server cho môi trường phát triển. Frontend chịu trách nhiệm hiển thị danh sách sản phẩm phổ biến, gợi ý cá nhân hóa theo từng phiên người dùng, và lịch sử hoạt động. Dữ liệu gợi ý được lấy từ API service qua proxy Nginx để tránh vấn đề chia sẻ tài nguyên giữa các nguồn gốc (CORS).
+
+Luồng dữ liệu tổng thể của hệ thống được mô tả qua sơ đồ dưới đây (Hình \ref{fig:architecture}). Người dùng tương tác với giao diện frontend (React) qua trình duyệt. Frontend hiển thị danh sách sản phẩm phổ biến và gợi ý cá nhân hóa, đồng thời gửi các tương tác (nhấn, thêm vào giỏ hàng, mua hàng) đến API service qua HTTP POST. API service lưu sự kiện vào Redis để quản lý phiên, sau đó thực thi luồng gợi ý theo chiến lược luồng đọc: kiểm tra bộ nhớ đệm Redis trước, nếu có thì trả về ngay lập tức; nếu chưa có thì truy vấn ma trận covisitation từ Redis để tạo gợi ý tức thì. Đồng thời, nếu phiên đủ dài, API service đẩy tác vụ tái tính toán vào hàng đợi nền để tác vụ nền gọi mô hình từ xa và lưu kết quả mới vào cache. Sự kiện cũng được xuất bản lên Kafka để Spark Streaming xử lý phân tích bất đồng bộ và ghi kết quả vào các bảng PostgreSQL. Bảng điều khiển (Dashboard) Streamlit gọi API để hiển thị số liệu giám sát.
 
 \begin{figure}[H]
 \centering
