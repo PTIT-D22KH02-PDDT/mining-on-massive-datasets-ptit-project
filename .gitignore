@@ -212,9 +212,6 @@ __marimo__/
 
 **/datasets/*
 test/*
-
-uv.lock
-
 **/spark-checkpoints
 
 **/.opencode
