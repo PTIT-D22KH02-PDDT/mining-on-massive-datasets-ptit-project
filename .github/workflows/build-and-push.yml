@@ -2,7 +2,7 @@ name: Build & Push Docker Images
 
 on:
   push:
-    branches: [main, "feat/**", "feat-*"]
+    branches: [main, "**feat**"]
     tags: ["v*"]
   pull_request:
     branches: [main]
@@ -40,12 +40,12 @@ jobs:
         with:
           images: ${{ env.DOCKER_USERNAME }}/${{ matrix.image }}
           tags: |
-            type=ref,event=branch,enable=${{ startsWith(github.ref, 'refs/heads/feat') }}
+            type=ref,event=branch,enable=${{ contains(github.ref, 'feat') }}
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=feat-latest,enable=${{ startsWith(github.ref, 'refs/heads/feat') }}
+            type=raw,value=feat-latest,enable=${{ contains(github.ref, 'feat') }}
 
       - name: Login to Docker Hub
         if: github.event_name != 'pull_request'
